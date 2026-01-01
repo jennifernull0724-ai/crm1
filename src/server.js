@@ -133,18 +133,61 @@ function pickTicketFields(input) {
     if (typeof input.subject === 'string') out.subject = input.subject;
     if (typeof input.description === 'string' || input.description === null) out.description = input.description;
     if (typeof input.priority === 'string') out.priority = input.priority;
-    if (typeof input.pipelineId === 'string') out.pipelineId = input.pipelineId;
-    if (typeof input.stageId === 'string') out.stageId = input.stageId;
-    if (typeof input.requesterContactId === 'string') out.requesterContactId = input.requesterContactId;
+    if (typeof input.status === 'string') out.status = input.status;
+    if (typeof input.primaryContactId === 'string') out.primaryContactId = input.primaryContactId;
+    if (Array.isArray(input.additionalContactIds)) out.additionalContactIds = input.additionalContactIds;
+    if (typeof input.dealId === 'string' || input.dealId === null) out.dealId = input.dealId;
   }
   return out;
 }
 
 function parseTicketPriority(input) {
   if (typeof input !== 'string') return null;
-  const p = input.trim();
+  const p = input.trim().toLowerCase();
   if (p === 'low' || p === 'medium' || p === 'high' || p === 'urgent') return p;
   return null;
+}
+
+function parseCreateTicketStatus(input) {
+  if (typeof input !== 'string') return null;
+  const s = input.trim().toUpperCase();
+  if (s === 'OPEN') return { api: 'OPEN', db: 'open' };
+  if (s === 'PENDING') return { api: 'PENDING', db: 'waiting' };
+  if (s === 'CLOSED') return { api: 'CLOSED', db: 'closed' };
+  return null;
+}
+
+const TICKET_SUBJECT_MAX_LEN = 200;
+
+function getActorPermissions(actorUserId) {
+  const raw = process.env.ACTOR_PERMISSIONS_JSON;
+  if (!raw) return null;
+  try {
+    const map = JSON.parse(raw);
+    const perms = map?.[actorUserId];
+    return Array.isArray(perms) ? perms.filter((p) => typeof p === 'string') : null;
+  } catch {
+    return null;
+  }
+}
+
+function requireReportReadAccess(req, res, { workspaceId, permissions = [] }) {
+  const actorUserId = requireActorUserId(req, res);
+  if (!actorUserId) return null;
+
+  const configuredPerms = getActorPermissions(actorUserId);
+  if (!configuredPerms) {
+    res.status(403).json({ error: 'Missing permissions: reports access not configured' });
+    return null;
+  }
+
+  const missing = permissions.filter((p) => !configuredPerms.includes(p));
+  if (missing.length) {
+    res.status(403).json({ error: `Missing permissions: ${missing.join(', ')}` });
+    return null;
+  }
+
+  return { actorUserId, workspaceId };
 }
 
 // Phase 0: Workspace reads (needed for UI shell gating and switcher) ----------
@@ -174,6 +217,25 @@ app.get('/workspaces/:workspaceId', async (req, res) => {
   }
 });
 
+// GET /workspaces/:workspaceId/permissions
+// Minimal permission surface for UI gating. Configure via ACTOR_PERMISSIONS_JSON.
+app.get('/workspaces/:workspaceId/permissions', async (req, res) => {
+  const actorUserId = req.header('x-actor-user-id') ?? req.query?.actorUserId;
+  if (typeof actorUserId !== 'string' || !actorUserId.trim()) {
+    res.status(400).json({ error: 'actorUserId is required (use x-actor-user-id header)' });
+    return;
+  }
+
+  const perms = getActorPermissions(actorUserId.trim());
+  if (!perms) {
+    // Default: deny everything unless configured.
+    res.status(200).json({ permissions: [] });
+    return;
+  }
+
+  res.status(200).json({ permissions: perms });
+});
+
 // Phase 1 reads --------------------------------------------------------------
 
 // GET /workspaces/:workspaceId/contacts
@@ -188,6 +250,597 @@ app.get('/workspaces/:workspaceId/contacts', async (req, res) => {
     });
 
     res.status(200).json(contacts);
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// Phase 14 -------------------------------------------------------------------
+// Reporting (GET-only). Read-only: SELECTs and projections only.
+
+// GET /workspaces/:workspaceId/reports/contacts/activity
+// Locked: Contact Activity (30d)
+app.get('/workspaces/:workspaceId/reports/contacts/activity', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const [mixByType, lastActivityByContact30d, lastActivityByContactAllTime, volume, mixBySubtype, contactGrowth] = await Promise.all([
+      prisma.$queryRaw`
+        SELECT
+          a.type AS "type",
+          COUNT(*)::int AS "count"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."occurredAt" >= (NOW() - INTERVAL '30 days')
+        GROUP BY a.type
+        ORDER BY "count" DESC, a.type ASC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          a."contactId" AS "contactId",
+          MAX(a."occurredAt") AS "lastOccurredAt"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."occurredAt" >= (NOW() - INTERVAL '30 days')
+        GROUP BY a."contactId"
+        ORDER BY "lastOccurredAt" DESC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          a."contactId" AS "contactId",
+          MAX(a."occurredAt") AS "lastOccurredAt"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+        GROUP BY a."contactId"
+        ORDER BY "lastOccurredAt" DESC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          7 AS "windowDays",
+          COUNT(*)::int AS "count"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."occurredAt" >= (NOW() - INTERVAL '7 days')
+        UNION ALL
+        SELECT
+          30 AS "windowDays",
+          COUNT(*)::int AS "count"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."occurredAt" >= (NOW() - INTERVAL '30 days')
+        UNION ALL
+        SELECT
+          90 AS "windowDays",
+          COUNT(*)::int AS "count"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."occurredAt" >= (NOW() - INTERVAL '90 days')
+        ORDER BY "windowDays" ASC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          a.subtype AS "subtype",
+          COUNT(*)::int AS "count"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."occurredAt" >= (NOW() - INTERVAL '30 days')
+          AND a.subtype IN ('email', 'call', 'meeting', 'task', 'note')
+        GROUP BY a.subtype
+        ORDER BY "count" DESC, a.subtype ASC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          7 AS "windowDays",
+          COUNT(*)::int AS "createdCount"
+        FROM "Contact" c
+        WHERE c."workspaceId" = ${workspaceId}
+          AND c."createdAt" >= (NOW() - INTERVAL '7 days')
+        UNION ALL
+        SELECT
+          30 AS "windowDays",
+          COUNT(*)::int AS "createdCount"
+        FROM "Contact" c
+        WHERE c."workspaceId" = ${workspaceId}
+          AND c."createdAt" >= (NOW() - INTERVAL '30 days')
+        UNION ALL
+        SELECT
+          90 AS "windowDays",
+          COUNT(*)::int AS "createdCount"
+        FROM "Contact" c
+        WHERE c."workspaceId" = ${workspaceId}
+          AND c."createdAt" >= (NOW() - INTERVAL '90 days')
+        ORDER BY "windowDays" ASC;
+      `
+    ]);
+
+    res.status(200).json({
+      windowDays: 30,
+      mixByType,
+      lastActivityByContact30d,
+      lastActivityByContactAllTime,
+      volume,
+      mixBySubtype,
+      contactGrowth
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/reports/deals/velocity
+// Locked: Deal Velocity = avg(occurredAt_stage_n+1 - occurredAt_stage_n)
+app.get('/workspaces/:workspaceId/reports/deals/velocity', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const [transitions, winRateByStage, avgDealAge, dealValueOverTime] = await Promise.all([
+      prisma.$queryRaw`
+        WITH events AS (
+          SELECT
+            (a.payload->>'dealId') AS deal_id,
+            (a.payload->>'pipelineId') AS pipeline_id,
+            (a.payload->>'stageId') AS stage_id,
+            a."occurredAt" AS occurred_at
+          FROM "Activity" a
+          WHERE a."workspaceId" = ${workspaceId}
+            AND a.type IN ('deal_created', 'deal_stage_changed')
+            AND (a.payload->>'dealId') IS NOT NULL
+            AND (a.payload->>'pipelineId') IS NOT NULL
+            AND (a.payload->>'stageId') IS NOT NULL
+        ),
+        ordered AS (
+          SELECT
+            deal_id,
+            pipeline_id,
+            stage_id AS from_stage_id,
+            occurred_at AS from_occurred_at,
+            LEAD(stage_id) OVER (PARTITION BY deal_id ORDER BY occurred_at) AS to_stage_id,
+            LEAD(occurred_at) OVER (PARTITION BY deal_id ORDER BY occurred_at) AS to_occurred_at
+          FROM events
+        ),
+        transitions AS (
+          SELECT
+            deal_id,
+            pipeline_id,
+            from_stage_id,
+            to_stage_id,
+            EXTRACT(EPOCH FROM (to_occurred_at - from_occurred_at))::double precision AS duration_seconds
+          FROM ordered
+          WHERE to_occurred_at IS NOT NULL
+            AND to_stage_id IS NOT NULL
+            AND from_stage_id IS NOT NULL
+        )
+        SELECT
+          pipeline_id AS "pipelineId",
+          from_stage_id AS "fromStageId",
+          to_stage_id AS "toStageId",
+          AVG(duration_seconds)::double precision AS "avgDurationSeconds",
+          COUNT(*)::int AS "transitionCount"
+        FROM transitions
+        GROUP BY pipeline_id, from_stage_id, to_stage_id
+        ORDER BY "transitionCount" DESC, "avgDurationSeconds" ASC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          d."pipelineId" AS "pipelineId",
+          d."stageId" AS "stageId",
+          d.status AS "status",
+          COUNT(*)::int AS "count"
+        FROM "Deal" d
+        WHERE d."workspaceId" = ${workspaceId}
+          AND d."archivedAt" IS NULL
+        GROUP BY d."pipelineId", d."stageId", d.status
+        ORDER BY "pipelineId" ASC, "stageId" ASC, "status" ASC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          d.status AS "status",
+          AVG(EXTRACT(EPOCH FROM (NOW() - d."createdAt")))::double precision AS "avgAgeSeconds",
+          COUNT(*)::int AS "count"
+        FROM "Deal" d
+        WHERE d."workspaceId" = ${workspaceId}
+          AND d."archivedAt" IS NULL
+        GROUP BY d.status
+        ORDER BY "status" ASC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          date_trunc('day', d."createdAt")::date AS "day",
+          SUM(COALESCE(d.amount, 0))::double precision AS "totalAmount",
+          COUNT(*)::int AS "dealCount"
+        FROM "Deal" d
+        WHERE d."workspaceId" = ${workspaceId}
+          AND d."archivedAt" IS NULL
+          AND d."createdAt" >= (NOW() - INTERVAL '90 days')
+        GROUP BY 1
+        ORDER BY 1 ASC;
+      `
+    ]);
+
+    res.status(200).json({ transitions, winRateByStage, avgDealAge, dealValueOverTime, windowDays: 90 });
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/reports/tickets/sla
+// Locked: Ticket SLA
+// - first_response_at - ticket_created_at
+// - resolved_at - ticket_created_at
+app.get('/workspaces/:workspaceId/reports/tickets/sla', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const [sla, openClosed, agingBuckets, slaSummary] = await Promise.all([
+      prisma.$queryRaw`
+        WITH created AS (
+          SELECT
+            (a.payload->>'ticketId') AS ticket_id,
+            MIN(a."occurredAt") AS ticket_created_at
+          FROM "Activity" a
+          WHERE a."workspaceId" = ${workspaceId}
+            AND a.type = 'ticket_created'
+            AND (a.payload->>'ticketId') IS NOT NULL
+          GROUP BY (a.payload->>'ticketId')
+        ),
+        resolved AS (
+          SELECT
+            (a.payload->>'ticketId') AS ticket_id,
+            MIN(a."occurredAt") AS resolved_at
+          FROM "Activity" a
+          WHERE a."workspaceId" = ${workspaceId}
+            AND a.type = 'ticket_closed'
+            AND (a.payload->>'ticketId') IS NOT NULL
+          GROUP BY (a.payload->>'ticketId')
+        ),
+        first_response AS (
+          SELECT
+            (a.payload->>'ticketId') AS ticket_id,
+            MIN(a."occurredAt") AS first_response_at
+          FROM "Activity" a
+          WHERE a."workspaceId" = ${workspaceId}
+            AND (a.payload->>'ticketId') IS NOT NULL
+            AND a.subtype IN ('email', 'call', 'meeting', 'note', 'task')
+          GROUP BY (a.payload->>'ticketId')
+        )
+        SELECT
+          c.ticket_id AS "ticketId",
+          c.ticket_created_at AS "ticketCreatedAt",
+          fr.first_response_at AS "firstResponseAt",
+          r.resolved_at AS "resolvedAt",
+          CASE
+            WHEN fr.first_response_at IS NULL THEN NULL
+            WHEN fr.first_response_at < c.ticket_created_at THEN NULL
+            ELSE EXTRACT(EPOCH FROM (fr.first_response_at - c.ticket_created_at))::double precision
+          END AS "timeToFirstResponseSeconds",
+          CASE
+            WHEN r.resolved_at IS NULL THEN NULL
+            WHEN r.resolved_at < c.ticket_created_at THEN NULL
+            ELSE EXTRACT(EPOCH FROM (r.resolved_at - c.ticket_created_at))::double precision
+          END AS "timeToResolutionSeconds"
+        FROM created c
+        LEFT JOIN first_response fr ON fr.ticket_id = c.ticket_id
+        LEFT JOIN resolved r ON r.ticket_id = c.ticket_id
+        ORDER BY c.ticket_created_at DESC;
+      `,
+      prisma.$queryRaw`
+        SELECT
+          t.status AS "status",
+          COUNT(*)::int AS "count"
+        FROM "Ticket" t
+        WHERE t."workspaceId" = ${workspaceId}
+          AND t."archivedAt" IS NULL
+        GROUP BY t.status
+        ORDER BY "count" DESC;
+      `,
+      prisma.$queryRaw`
+        WITH open_tickets AS (
+          SELECT
+            t.id,
+            EXTRACT(EPOCH FROM (NOW() - t."createdAt"))::double precision AS age_seconds
+          FROM "Ticket" t
+          WHERE t."workspaceId" = ${workspaceId}
+            AND t."archivedAt" IS NULL
+            AND t.status IN ('open', 'waiting')
+        )
+        SELECT
+          bucket AS "bucket",
+          COUNT(*)::int AS "count"
+        FROM (
+          SELECT
+            CASE
+              WHEN age_seconds < 86400 THEN '0-1d'
+              WHEN age_seconds < 86400 * 3 THEN '1-3d'
+              WHEN age_seconds < 86400 * 7 THEN '3-7d'
+              ELSE '7+d'
+            END AS bucket
+          FROM open_tickets
+        ) b
+        GROUP BY bucket
+        ORDER BY
+          CASE bucket
+            WHEN '0-1d' THEN 1
+            WHEN '1-3d' THEN 2
+            WHEN '3-7d' THEN 3
+            ELSE 4
+          END;
+      `,
+      prisma.$queryRaw`
+        WITH created AS (
+          SELECT
+            (a.payload->>'ticketId') AS ticket_id,
+            MIN(a."occurredAt") AS ticket_created_at
+          FROM "Activity" a
+          WHERE a."workspaceId" = ${workspaceId}
+            AND a.type = 'ticket_created'
+            AND (a.payload->>'ticketId') IS NOT NULL
+          GROUP BY (a.payload->>'ticketId')
+        ),
+        resolved AS (
+          SELECT
+            (a.payload->>'ticketId') AS ticket_id,
+            MIN(a."occurredAt") AS resolved_at
+          FROM "Activity" a
+          WHERE a."workspaceId" = ${workspaceId}
+            AND a.type = 'ticket_closed'
+            AND (a.payload->>'ticketId') IS NOT NULL
+          GROUP BY (a.payload->>'ticketId')
+        ),
+        first_response AS (
+          SELECT
+            (a.payload->>'ticketId') AS ticket_id,
+            MIN(a."occurredAt") AS first_response_at
+          FROM "Activity" a
+          WHERE a."workspaceId" = ${workspaceId}
+            AND (a.payload->>'ticketId') IS NOT NULL
+            AND a.subtype IN ('email', 'call', 'meeting', 'note', 'task')
+          GROUP BY (a.payload->>'ticketId')
+        ),
+        metrics AS (
+          SELECT
+            c.ticket_id,
+            CASE
+              WHEN fr.first_response_at IS NULL THEN NULL
+              WHEN fr.first_response_at < c.ticket_created_at THEN NULL
+              ELSE EXTRACT(EPOCH FROM (fr.first_response_at - c.ticket_created_at))::double precision
+            END AS ttfr_seconds,
+            CASE
+              WHEN r.resolved_at IS NULL THEN NULL
+              WHEN r.resolved_at < c.ticket_created_at THEN NULL
+              ELSE EXTRACT(EPOCH FROM (r.resolved_at - c.ticket_created_at))::double precision
+            END AS ttr_seconds
+          FROM created c
+          LEFT JOIN first_response fr ON fr.ticket_id = c.ticket_id
+          LEFT JOIN resolved r ON r.ticket_id = c.ticket_id
+        )
+        SELECT
+          COUNT(*)::int AS "ticketCount",
+          COUNT(ttfr_seconds)::int AS "ticketsWithFirstResponse",
+          AVG(ttfr_seconds)::double precision AS "avgTimeToFirstResponseSeconds",
+          COUNT(ttr_seconds)::int AS "ticketsResolved",
+          AVG(ttr_seconds)::double precision AS "avgTimeToResolutionSeconds"
+        FROM metrics;
+      `
+    ]);
+
+    res.status(200).json({ sla, openClosed, agingBuckets, slaSummary });
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/reports/associations/coverage
+// Locked: Association Coverage
+// - % deals with primary contact
+// - avg contacts per ticket
+app.get('/workspaces/:workspaceId/reports/associations/coverage', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const [dealCoverage, ticketCoverage, churn, dealContactsDistribution, ticketContactsDistribution] = await Promise.all([
+      prisma.$queryRaw`
+        WITH latest AS (
+          SELECT DISTINCT ON (dca."dealId", dca."contactId")
+            dca."dealId" AS deal_id,
+            dca."contactId" AS contact_id,
+            dca."isPrimary" AS is_primary,
+            dca."archivedAt" AS archived_at,
+            dca."createdAt" AS created_at
+          FROM "DealContactAssociation" dca
+          WHERE dca."workspaceId" = ${workspaceId}
+          ORDER BY dca."dealId", dca."contactId", dca."createdAt" DESC
+        ),
+        active AS (
+          SELECT * FROM latest WHERE archived_at IS NULL
+        ),
+        deal_rollup AS (
+          SELECT
+            deal_id,
+            MAX(CASE WHEN is_primary THEN 1 ELSE 0 END)::int AS has_primary,
+            COUNT(*)::int AS contact_count
+          FROM active
+          GROUP BY deal_id
+        ),
+        eligible_deals AS (
+          SELECT d.id AS deal_id
+          FROM "Deal" d
+          WHERE d."workspaceId" = ${workspaceId}
+            AND d."archivedAt" IS NULL
+        )
+        SELECT
+          (SELECT COUNT(*)::int FROM eligible_deals) AS "dealCount",
+          (SELECT COUNT(*)::int FROM deal_rollup dr JOIN eligible_deals ed ON ed.deal_id = dr.deal_id WHERE dr.has_primary = 1) AS "dealsWithPrimary",
+          (SELECT AVG(dr.contact_count)::double precision FROM deal_rollup dr JOIN eligible_deals ed ON ed.deal_id = dr.deal_id) AS "avgContactsPerDeal"
+      `,
+      prisma.$queryRaw`
+        WITH latest AS (
+          SELECT DISTINCT ON (tca."ticketId", tca."contactId")
+            tca."ticketId" AS ticket_id,
+            tca."contactId" AS contact_id,
+            tca."isRequester" AS is_requester,
+            tca."archivedAt" AS archived_at,
+            tca."createdAt" AS created_at
+          FROM "TicketContactAssociation" tca
+          WHERE tca."workspaceId" = ${workspaceId}
+          ORDER BY tca."ticketId", tca."contactId", tca."createdAt" DESC
+        ),
+        active AS (
+          SELECT * FROM latest WHERE archived_at IS NULL
+        ),
+        ticket_rollup AS (
+          SELECT
+            ticket_id,
+            MAX(CASE WHEN is_requester THEN 1 ELSE 0 END)::int AS has_primary,
+            COUNT(*)::int AS contact_count
+          FROM active
+          GROUP BY ticket_id
+        ),
+        eligible_tickets AS (
+          SELECT t.id AS ticket_id
+          FROM "Ticket" t
+          WHERE t."workspaceId" = ${workspaceId}
+            AND t."archivedAt" IS NULL
+        )
+        SELECT
+          (SELECT COUNT(*)::int FROM eligible_tickets) AS "ticketCount",
+          (SELECT COUNT(*)::int FROM ticket_rollup tr JOIN eligible_tickets et ON et.ticket_id = tr.ticket_id WHERE tr.has_primary = 1) AS "ticketsWithPrimary",
+          (SELECT AVG(tr.contact_count)::double precision FROM ticket_rollup tr JOIN eligible_tickets et ON et.ticket_id = tr.ticket_id) AS "avgContactsPerTicket"
+      `,
+      prisma.$queryRaw`
+        SELECT
+          date_trunc('day', a."occurredAt")::date AS "day",
+          a.type AS "type",
+          (a.payload->>'kind') AS "kind",
+          COUNT(*)::int AS "count"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a.type IN ('association_added', 'association_removed')
+          AND a."occurredAt" >= (NOW() - INTERVAL '30 days')
+        GROUP BY 1, 2, 3
+        ORDER BY 1 ASC, 2 ASC, 3 ASC;
+      `,
+      prisma.$queryRaw`
+        WITH latest AS (
+          SELECT DISTINCT ON (dca."dealId", dca."contactId")
+            dca."dealId" AS deal_id,
+            dca."contactId" AS contact_id,
+            dca."archivedAt" AS archived_at,
+            dca."createdAt" AS created_at
+          FROM "DealContactAssociation" dca
+          WHERE dca."workspaceId" = ${workspaceId}
+          ORDER BY dca."dealId", dca."contactId", dca."createdAt" DESC
+        ),
+        active AS (
+          SELECT * FROM latest WHERE archived_at IS NULL
+        ),
+        deal_rollup AS (
+          SELECT deal_id, COUNT(*)::int AS contact_count
+          FROM active
+          GROUP BY deal_id
+        )
+        SELECT
+          CASE
+            WHEN contact_count <= 1 THEN '1'
+            WHEN contact_count = 2 THEN '2'
+            WHEN contact_count = 3 THEN '3'
+            ELSE '4+'
+          END AS "bucket",
+          COUNT(*)::int AS "count"
+        FROM deal_rollup
+        GROUP BY 1
+        ORDER BY
+          CASE
+            WHEN (CASE
+              WHEN contact_count <= 1 THEN '1'
+              WHEN contact_count = 2 THEN '2'
+              WHEN contact_count = 3 THEN '3'
+              ELSE '4+'
+            END) = '1' THEN 1
+            WHEN (CASE
+              WHEN contact_count <= 1 THEN '1'
+              WHEN contact_count = 2 THEN '2'
+              WHEN contact_count = 3 THEN '3'
+              ELSE '4+'
+            END) = '2' THEN 2
+            WHEN (CASE
+              WHEN contact_count <= 1 THEN '1'
+              WHEN contact_count = 2 THEN '2'
+              WHEN contact_count = 3 THEN '3'
+              ELSE '4+'
+            END) = '3' THEN 3
+            ELSE 4
+          END;
+      `,
+      prisma.$queryRaw`
+        WITH latest AS (
+          SELECT DISTINCT ON (tca."ticketId", tca."contactId")
+            tca."ticketId" AS ticket_id,
+            tca."contactId" AS contact_id,
+            tca."archivedAt" AS archived_at,
+            tca."createdAt" AS created_at
+          FROM "TicketContactAssociation" tca
+          WHERE tca."workspaceId" = ${workspaceId}
+          ORDER BY tca."ticketId", tca."contactId", tca."createdAt" DESC
+        ),
+        active AS (
+          SELECT * FROM latest WHERE archived_at IS NULL
+        ),
+        ticket_rollup AS (
+          SELECT ticket_id, COUNT(*)::int AS contact_count
+          FROM active
+          GROUP BY ticket_id
+        )
+        SELECT
+          CASE
+            WHEN contact_count <= 1 THEN '1'
+            WHEN contact_count = 2 THEN '2'
+            WHEN contact_count = 3 THEN '3'
+            ELSE '4+'
+          END AS "bucket",
+          COUNT(*)::int AS "count"
+        FROM ticket_rollup
+        GROUP BY 1
+        ORDER BY
+          CASE
+            WHEN (CASE
+              WHEN contact_count <= 1 THEN '1'
+              WHEN contact_count = 2 THEN '2'
+              WHEN contact_count = 3 THEN '3'
+              ELSE '4+'
+            END) = '1' THEN 1
+            WHEN (CASE
+              WHEN contact_count <= 1 THEN '1'
+              WHEN contact_count = 2 THEN '2'
+              WHEN contact_count = 3 THEN '3'
+              ELSE '4+'
+            END) = '2' THEN 2
+            WHEN (CASE
+              WHEN contact_count <= 1 THEN '1'
+              WHEN contact_count = 2 THEN '2'
+              WHEN contact_count = 3 THEN '3'
+              ELSE '4+'
+            END) = '3' THEN 3
+            ELSE 4
+          END;
+      `
+    ]);
+
+    res.status(200).json({
+      dealCoverage,
+      ticketCoverage,
+      churnWindowDays: 30,
+      churn,
+      dealContactsDistribution,
+      ticketContactsDistribution
+    });
   } catch (err) {
     res.status(400).json({ error: err.message ?? 'Bad Request' });
   }
@@ -1754,74 +2407,118 @@ app.post('/workspaces/:workspaceId/tickets', async (req, res) => {
 
   const { workspaceId } = req.params;
   const fields = pickTicketFields(req.body);
-  const priority = parseTicketPriority(fields.priority);
+  const statusParsed = fields.status ? parseCreateTicketStatus(fields.status) : { api: 'OPEN', db: 'open' };
+  const priorityDb = fields.priority ? parseTicketPriority(fields.priority) : 'medium';
+
+  const configuredPerms = getActorPermissions(actorUserId);
+  if (!configuredPerms || !configuredPerms.includes('tickets:create') || !configuredPerms.includes('contacts:read')) {
+    res.status(403).json({ error: 'Missing permissions: tickets:create and contacts:read are required' });
+    return;
+  }
 
   if (typeof fields.subject !== 'string' || !fields.subject.trim()) {
-    res.status(400).json({ error: 'Invalid subject' });
+    res.status(400).json({ error: 'Subject is required' });
     return;
   }
-  if (!priority) {
-    res.status(400).json({ error: 'Invalid priority' });
+
+  const subject = fields.subject.trim();
+  if (subject.length > TICKET_SUBJECT_MAX_LEN) {
+    res.status(400).json({ error: `Subject too long (max ${TICKET_SUBJECT_MAX_LEN})` });
     return;
   }
-  if (typeof fields.pipelineId !== 'string' || !fields.pipelineId) {
-    res.status(400).json({ error: 'pipelineId is required' });
+
+  if (!statusParsed) {
+    res.status(400).json({ error: 'Invalid status (expected OPEN | PENDING | CLOSED)' });
     return;
   }
-  if (typeof fields.stageId !== 'string' || !fields.stageId) {
-    res.status(400).json({ error: 'stageId is required' });
+
+  if (!priorityDb) {
+    res.status(400).json({ error: 'Invalid priority (expected LOW | MEDIUM | HIGH | URGENT)' });
     return;
   }
-  if (typeof fields.requesterContactId !== 'string' || !fields.requesterContactId) {
-    res.status(400).json({ error: 'requesterContactId is required' });
+
+  if (typeof fields.primaryContactId !== 'string' || !fields.primaryContactId) {
+    res.status(400).json({ error: 'primaryContactId is required' });
     return;
   }
+
+  const additionalContactIds = Array.isArray(fields.additionalContactIds) ? fields.additionalContactIds : [];
+  if (additionalContactIds.some((id) => typeof id !== 'string' || !id)) {
+    res.status(400).json({ error: 'additionalContactIds must be an array of contactId strings' });
+    return;
+  }
+
+  const dedupedAdditional = [...new Set(additionalContactIds)].filter((id) => id !== fields.primaryContactId);
+
+  const dealId = typeof fields.dealId === 'string' && fields.dealId ? fields.dealId : null;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const requesterContact = await tx.contact.findUnique({
-        where: { workspaceId_id: { workspaceId, id: fields.requesterContactId } }
+      const primaryContact = await tx.contact.findUnique({
+        where: { workspaceId_id: { workspaceId, id: fields.primaryContactId } }
       });
-      if (!requesterContact) {
-        const e = new Error('Requester Contact not found');
-        e.statusCode = 404;
+      if (!primaryContact) {
+        const e = new Error('Primary Contact not found');
+        e.statusCode = 400;
         throw e;
       }
-      if (requesterContact.archivedAt) {
-        const e = new Error('Requester Contact is archived');
+      if (primaryContact.archivedAt) {
+        const e = new Error('Primary Contact is archived');
+        e.statusCode = 400;
+        throw e;
+      }
+
+      for (const contactId of dedupedAdditional) {
+        const c = await tx.contact.findUnique({ where: { workspaceId_id: { workspaceId, id: contactId } } });
+        if (!c || c.archivedAt) {
+          const e = new Error('Invalid additional contact');
+          e.statusCode = 400;
+          throw e;
+        }
+      }
+
+      if (dealId) {
+        const deal = await tx.deal.findUnique({ where: { id: dealId } });
+        if (!deal || deal.workspaceId !== workspaceId || deal.archivedAt) {
+          const e = new Error('Invalid dealId');
+          e.statusCode = 400;
+          throw e;
+        }
+      }
+
+      const pipeline = await tx.ticketPipeline.findFirst({ where: { workspaceId }, orderBy: [{ order: 'asc' }] });
+      if (!pipeline) {
+        const e = new Error('No ticket pipeline configured');
         e.statusCode = 409;
         throw e;
       }
 
-      const pipeline = await tx.ticketPipeline.findUnique({
-        where: { workspaceId_id: { workspaceId, id: fields.pipelineId } }
-      });
-      if (!pipeline) {
-        const e = new Error('TicketPipeline not found');
-        e.statusCode = 404;
+      const wantsClosedStage = statusParsed.db === 'closed';
+      const stage = (await tx.ticketStage.findFirst({
+        where: { workspaceId, pipelineId: pipeline.id, isClosed: wantsClosedStage },
+        orderBy: [{ order: 'asc' }]
+      })) ?? (await tx.ticketStage.findFirst({
+        where: { workspaceId, pipelineId: pipeline.id },
+        orderBy: [{ order: 'asc' }]
+      }));
+
+      if (!stage) {
+        const e = new Error('No ticket stages configured');
+        e.statusCode = 409;
         throw e;
       }
 
-      const stage = await tx.ticketStage.findUnique({
-        where: { workspaceId_id: { workspaceId, id: fields.stageId } }
-      });
-      if (!stage || stage.pipelineId !== fields.pipelineId) {
-        const e = new Error('TicketStage not found for pipeline');
-        e.statusCode = 404;
-        throw e;
-      }
-
-      const initialStatus = stage.isClosed ? 'closed' : 'open';
+      const occurredAt = nowIso();
 
       const ticket = await tx.ticket.create({
         data: {
           workspaceId,
-          subject: fields.subject.trim(),
+          subject,
           description: fields.description ?? null,
-          priority,
-          status: initialStatus,
-          pipelineId: fields.pipelineId,
-          stageId: fields.stageId,
+          priority: priorityDb,
+          status: statusParsed.db,
+          pipelineId: pipeline.id,
+          stageId: stage.id,
           archivedAt: null,
           createdAt: nowIso()
         }
@@ -1831,45 +2528,133 @@ app.post('/workspaces/:workspaceId/tickets', async (req, res) => {
         data: {
           workspaceId,
           ticketId: ticket.id,
-          contactId: fields.requesterContactId,
+          contactId: fields.primaryContactId,
           isRequester: true,
           createdAt: nowIso(),
           archivedAt: null
         }
       });
 
+      for (const contactId of dedupedAdditional) {
+        await tx.ticketContactAssociation.create({
+          data: {
+            workspaceId,
+            ticketId: ticket.id,
+            contactId,
+            isRequester: false,
+            createdAt: nowIso(),
+            archivedAt: null
+          }
+        });
+      }
+
       await tx.activity.create({
         data: {
           workspaceId,
-          contactId: fields.requesterContactId,
+          contactId: fields.primaryContactId,
           type: 'ticket_created',
           subtype: 'system',
           actorUserId,
-          payload: { ticketId: ticket.id, pipelineId: ticket.pipelineId, stageId: ticket.stageId },
-          occurredAt: nowIso(),
+          payload: {
+            ticketId: ticket.id,
+            subject,
+            status: statusParsed.api,
+            priority: priorityDb.toUpperCase()
+          },
+          occurredAt,
           createdAt: nowIso()
         }
       });
 
-      if (initialStatus === 'closed') {
+      // Association Activities (Phase 12 parity)
+      await tx.activity.create({
+        data: {
+          workspaceId,
+          contactId: fields.primaryContactId,
+          type: 'association_added',
+          subtype: 'system',
+          actorUserId,
+          payload: { kind: 'association_added', object: 'ticket', ticketId: ticket.id, contactId: fields.primaryContactId },
+          occurredAt,
+          createdAt: nowIso()
+        }
+      });
+
+      for (const contactId of dedupedAdditional) {
         await tx.activity.create({
           data: {
             workspaceId,
-            contactId: fields.requesterContactId,
-            type: 'ticket_closed',
+            contactId,
+            type: 'association_added',
             subtype: 'system',
             actorUserId,
-            payload: { ticketId: ticket.id, pipelineId: ticket.pipelineId, stageId: ticket.stageId },
-            occurredAt: nowIso(),
+            payload: { kind: 'association_added', object: 'ticket', ticketId: ticket.id, contactId },
+            occurredAt,
             createdAt: nowIso()
           }
         });
       }
 
-      return ticket;
+      await tx.activity.create({
+        data: {
+          workspaceId,
+          contactId: fields.primaryContactId,
+          type: 'association_added',
+          subtype: 'system',
+          actorUserId,
+          payload: { kind: 'primary_set', object: 'ticket', ticketId: ticket.id, contactId: fields.primaryContactId },
+          occurredAt,
+          createdAt: nowIso()
+        }
+      });
+
+      return { ticketId: ticket.id };
     });
 
     res.status(201).json(result);
+  } catch (err) {
+    res.status(err.statusCode ?? 400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/contacts/:contactId/associated-tickets
+app.get('/workspaces/:workspaceId/contacts/:contactId/associated-tickets', async (req, res) => {
+  const { workspaceId, contactId } = req.params;
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const contact = await tx.contact.findUnique({ where: { workspaceId_id: { workspaceId, id: contactId } } });
+      if (!contact) {
+        const e = new Error('Contact not found');
+        e.statusCode = 404;
+        throw e;
+      }
+
+      const rows = await tx.ticketContactAssociation.findMany({
+        where: { workspaceId, contactId },
+        orderBy: [{ createdAt: 'desc' }]
+      });
+
+      const latestByTicket = new Map();
+      for (const r of rows) {
+        if (!latestByTicket.has(r.ticketId)) latestByTicket.set(r.ticketId, r);
+      }
+
+      const active = [...latestByTicket.values()].filter((r) => r.archivedAt === null);
+      const ticketIds = active.map((r) => r.ticketId);
+      const tickets = ticketIds.length
+        ? await tx.ticket.findMany({ where: { workspaceId, id: { in: ticketIds } } })
+        : [];
+
+      const byId = new Map(tickets.map((t) => [t.id, t]));
+      const associated = active
+        .map((r) => ({ ticket: byId.get(r.ticketId) ?? null, role: r.isRequester ? 'primary' : 'additional' }))
+        .filter((x) => x.ticket);
+
+      return { workspaceId, contactId, tickets: associated };
+    });
+
+    res.status(200).json(result);
   } catch (err) {
     res.status(err.statusCode ?? 400).json({ error: err.message ?? 'Bad Request' });
   }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useParams } from 'react-router-dom';
 
 import RecordPageLayout from '../../layouts/RecordPageLayout.jsx';
@@ -11,7 +12,16 @@ import { useSession } from '../../state/session.jsx';
 import { useToasts } from '../../state/toasts.jsx';
 import { useModals } from '../../state/modals.jsx';
 import { useAsync } from '../../hooks/useAsync.js';
-import { associateCompany, getContact, listActivities, listCompanies, logNote, mergeContacts, updateContact } from '../../api/crm.js';
+import {
+  associateCompany,
+  getContact,
+  getContactAssociatedTickets,
+  listActivities,
+  listCompanies,
+  logNote,
+  mergeContacts,
+  updateContact
+} from '../../api/crm.js';
 
 import EditPropertiesPanel from '../../components/panels/EditPropertiesPanel.jsx';
 import LogActivityPanel from '../../components/panels/LogActivityPanel.jsx';
@@ -25,6 +35,7 @@ export default function ContactRecordPage({ subNav }) {
   const modals = useModals();
 
   const contactState = useAsync(() => getContact(workspaceId, contactId), [workspaceId, contactId]);
+  const ticketsState = useAsync(() => getContactAssociatedTickets(workspaceId, contactId), [workspaceId, contactId]);
   const [activityState, setActivityState] = React.useState({ status: 'idle', data: [], error: null });
   const [nextCursor, setNextCursor] = React.useState(null);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
@@ -96,20 +107,51 @@ export default function ContactRecordPage({ subNav }) {
       {contactState.status === 'loading' || contactState.status === 'idle' ? <div>Loading…</div> : null}
       {contactState.status === 'error' ? <EmptyState title="Failed to load contact" description={contactState.error.message} /> : null}
       {contactState.status === 'success' ? (
-        <dl style={{ margin: 0, display: 'grid', gap: 6 }}>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <dl style={{ margin: 0, display: 'grid', gap: 6 }}>
+            <div>
+              <dt style={{ fontSize: 12 }}>Email</dt>
+              <dd style={{ margin: 0 }}>{contactState.data.email ?? ''}</dd>
+            </div>
+            <div>
+              <dt style={{ fontSize: 12 }}>Created</dt>
+              <dd style={{ margin: 0 }}>{new Date(contactState.data.createdAt).toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt style={{ fontSize: 12 }}>Archived</dt>
+              <dd style={{ margin: 0 }}>{contactState.data.archivedAt ? new Date(contactState.data.archivedAt).toLocaleString() : ''}</dd>
+            </div>
+          </dl>
+
           <div>
-            <dt style={{ fontSize: 12 }}>Email</dt>
-            <dd style={{ margin: 0 }}>{contactState.data.email ?? ''}</dd>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+              <div style={{ fontSize: 12 }}>Tickets</div>
+              <Link to={`/contacts/${contactId}/tickets/new`} style={{ fontSize: 12 }}>
+                New ticket
+              </Link>
+            </div>
+
+            {ticketsState.status === 'loading' || ticketsState.status === 'idle' ? <div>Loading…</div> : null}
+            {ticketsState.status === 'error' ? (
+              <EmptyState title="Failed to load tickets" description={ticketsState.error.message} />
+            ) : null}
+            {ticketsState.status === 'success' && Array.isArray(ticketsState.data?.tickets) && ticketsState.data.tickets.length === 0 ? (
+              <div style={{ fontSize: 12 }}>No tickets</div>
+            ) : null}
+            {ticketsState.status === 'success' && Array.isArray(ticketsState.data?.tickets) && ticketsState.data.tickets.length > 0 ? (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {ticketsState.data.tickets.map((row) => (
+                  <div key={row.ticket.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                    <div>
+                      <Link to={`/tickets/${row.ticket.id}`}>{row.ticket.subject ?? row.ticket.id}</Link>
+                    </div>
+                    <div style={{ fontSize: 12 }}>{row.role}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
-          <div>
-            <dt style={{ fontSize: 12 }}>Created</dt>
-            <dd style={{ margin: 0 }}>{new Date(contactState.data.createdAt).toLocaleString()}</dd>
-          </div>
-          <div>
-            <dt style={{ fontSize: 12 }}>Archived</dt>
-            <dd style={{ margin: 0 }}>{contactState.data.archivedAt ? new Date(contactState.data.archivedAt).toLocaleString() : ''}</dd>
-          </div>
-        </dl>
+        </div>
       ) : null}
     </SidePanelLayout>
   );

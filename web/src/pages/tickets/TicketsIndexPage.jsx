@@ -13,10 +13,13 @@ export default function TicketsIndexPage({ subNav }) {
 
   return (
     <ObjectIndexLayout title="Tickets" subNav={subNav}>
+      <div style={{ margin: '0 0 12px 0' }}>
+        <Link to="/tickets/new">New ticket</Link>
+      </div>
       {state.status === 'loading' || state.status === 'idle' ? <div>Loading…</div> : null}
       {state.status === 'error' ? <EmptyState title="Failed to load tickets" description={state.error.message} /> : null}
       {state.status === 'success' && Array.isArray(state.data) && state.data.length === 0 ? (
-        <EmptyState title="No tickets" description="Create a ticket via API first." />
+        <EmptyState title="No tickets" description="Create a ticket to get started." />
       ) : null}
       {state.status === 'success' && Array.isArray(state.data) && state.data.length > 0 ? (
         <div style={{ display: 'grid', gap: 8 }}>

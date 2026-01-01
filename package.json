@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "concurrently \"npm start\" \"npm --prefix web run dev\"",
+    "ci:phase14": "node scripts/phase14-guards.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "start": "node src/server.js"
@@ -13,6 +15,7 @@
     "express": "^4.19.2"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "prisma": "^6.2.0"
   }
 }

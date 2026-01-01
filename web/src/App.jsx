@@ -22,6 +22,8 @@ import DealsIndexPage from './pages/deals/DealsIndexPage.jsx';
 import DealRecordPage from './pages/deals/DealRecordPage.jsx';
 import TicketsIndexPage from './pages/tickets/TicketsIndexPage.jsx';
 import TicketRecordPage from './pages/tickets/TicketRecordPage.jsx';
+import CreateTicketPage from './pages/tickets/CreateTicketPage.jsx';
+import ReportsPage from './pages/reports/ReportsPage.jsx';
 
 function Shell({ children }) {
   const { toasts, remove } = useToasts();
@@ -185,7 +187,8 @@ function ShellRoutes() {
     { to: '/contacts', label: 'Contacts', icon: 'C', visible: access.contacts },
     { to: '/companies', label: 'Companies', icon: 'O', visible: access.companies },
     { to: '/deals', label: 'Deals', icon: 'D', visible: access.deals },
-    { to: '/tickets', label: 'Tickets', icon: 'T', visible: access.tickets }
+    { to: '/tickets', label: 'Tickets', icon: 'T', visible: access.tickets },
+    { to: '/reports', label: 'Reports', icon: 'R', visible: access.contacts || access.deals || access.tickets }
   ];
 
   const subNav = <ObjectSubNav items={navItems} />;
@@ -252,6 +255,34 @@ function ShellRoutes() {
             </Guarded>
           }
         />
+
+        <Route
+          path="/reports"
+          element={
+            <Guarded allowed={access.contacts || access.deals || access.tickets} access={access}>
+              <ReportsPage subNav={subNav} />
+            </Guarded>
+          }
+        />
+
+        <Route
+          path="/tickets/new"
+          element={
+            <Guarded allowed={access.tickets} access={access}>
+              <CreateTicketPage subNav={subNav} />
+            </Guarded>
+          }
+        />
+
+        <Route
+          path="/contacts/:contactId/tickets/new"
+          element={
+            <Guarded allowed={access.tickets && access.contacts} access={access}>
+              <CreateTicketPage subNav={subNav} />
+            </Guarded>
+          }
+        />
+
         <Route
           path="/tickets/:ticketId"
           element={

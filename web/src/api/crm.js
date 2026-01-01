@@ -8,6 +8,13 @@ export function getWorkspace(workspaceId) {
   return apiFetch(`/workspaces/${workspaceId}`);
 }
 
+export function getPermissions(workspaceId, { actorUserId }) {
+  const qs = new URLSearchParams();
+  if (typeof actorUserId === 'string' && actorUserId) qs.set('actorUserId', actorUserId);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch(`/workspaces/${workspaceId}/permissions${suffix}`);
+}
+
 export function listContacts(workspaceId) {
   return apiFetch(`/workspaces/${workspaceId}/contacts`);
 }
@@ -38,6 +45,41 @@ export function listTickets(workspaceId) {
 
 export function getTicket(workspaceId, ticketId) {
   return apiFetch(`/workspaces/${workspaceId}/tickets/${ticketId}`);
+}
+
+export function createTicket(workspaceId, body, { actorUserId }) {
+  return apiFetch(`/workspaces/${workspaceId}/tickets`, {
+    method: 'POST',
+    body: { ...body, actorUserId }
+  });
+}
+
+export function getContactAssociatedTickets(workspaceId, contactId) {
+  return apiFetch(`/workspaces/${workspaceId}/contacts/${contactId}/associated-tickets`);
+}
+
+export function reportContactActivity(workspaceId, { actorUserId }) {
+  return apiFetch(`/workspaces/${workspaceId}/reports/contacts/activity`, {
+    headers: { 'x-actor-user-id': actorUserId }
+  });
+}
+
+export function reportDealVelocity(workspaceId, { actorUserId }) {
+  return apiFetch(`/workspaces/${workspaceId}/reports/deals/velocity`, {
+    headers: { 'x-actor-user-id': actorUserId }
+  });
+}
+
+export function reportTicketSla(workspaceId, { actorUserId }) {
+  return apiFetch(`/workspaces/${workspaceId}/reports/tickets/sla`, {
+    headers: { 'x-actor-user-id': actorUserId }
+  });
+}
+
+export function reportAssociationCoverage(workspaceId, { actorUserId }) {
+  return apiFetch(`/workspaces/${workspaceId}/reports/associations/coverage`, {
+    headers: { 'x-actor-user-id': actorUserId }
+  });
 }
 
 export function listActivities(workspaceId, contactId, { limit, cursor } = {}) {
