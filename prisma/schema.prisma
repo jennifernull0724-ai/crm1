@@ -1,0 +1,530 @@
+// Phase 1 ONLY: Workspace, Contact, Activity
+// Tenant isolation is enforced by requiring workspaceId on Contact/Activity and a composite FK
+// from Activity(workspaceId, contactId) -> Contact(workspaceId, id) to prevent cross-tenant linking.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ActivityType {
+  contact_created
+  contact_updated
+  contact_merged
+  contact_archived
+  contact_property_set
+  contact_property_cleared
+  company_created
+  company_archived
+  contact_company_associated
+  contact_company_disassociated
+  deal_created
+  deal_stage_changed
+  deal_amount_updated
+  deal_contact_associated
+  deal_contact_disassociated
+  deal_archived
+  deal_won
+  deal_lost
+  ticket_created
+  ticket_stage_changed
+  ticket_priority_changed
+  ticket_contact_associated
+  ticket_contact_disassociated
+  ticket_archived
+  ticket_closed
+  ticket_reopened
+
+  // Phase 6: execution artifacts as Activities only (no tables)
+  task_created
+  task_completed
+  task_reopened
+  task_assigned
+  task_due_date_changed
+
+  note_created
+  note_added
+
+  email_sent
+  email_received
+  email_logged
+  email_opened
+  email_clicked
+  email_bounced
+
+  call_logged
+
+  meeting_scheduled
+  meeting_held
+  meeting_completed
+  meeting_canceled
+
+  association_added
+  association_removed
+
+  // Phase 7: automation/workflows (engine-emitted audit/actions)
+  automation_task_created
+  automation_internal_notification_sent
+  automation_property_updated
+  automation_company_associated
+  automation_execution_succeeded
+  automation_execution_failed
+  automation_execution_skipped
+}
+
+enum ActivitySubtype {
+  contact
+  task
+  note
+  email
+  call
+  meeting
+  system
+}
+
+enum WorkflowActionType {
+  create_task
+  send_internal_notification
+  set_contact_property
+  associate_company
+  delay
+}
+
+enum WorkflowExecutionStatus {
+  success
+  failed
+  skipped
+}
+
+enum ContactPropertyType {
+  string
+  number
+  boolean
+  date
+  enum
+}
+
+enum ContactCompanyRole {
+  primary
+  employee
+  contractor
+  other
+}
+
+enum DealStatus {
+  open
+  won
+  lost
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum TicketStatus {
+  open
+  waiting
+  closed
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  contacts   Contact[]
+  activities Activity[]
+
+  contactPropertyDefinitions ContactPropertyDefinition[]
+  contactPropertyValues      ContactPropertyValue[]
+
+  companies                  Company[]
+  contactCompanyAssociations ContactCompanyAssociation[]
+
+  pipelines             Pipeline[]
+  pipelineStages        PipelineStage[]
+  deals                 Deal[]
+  dealContactAssociations DealContactAssociation[]
+
+  ticketPipelines            TicketPipeline[]
+  ticketStages               TicketStage[]
+  tickets                    Ticket[]
+  ticketContactAssociations  TicketContactAssociation[]
+
+  workflows Workflow[]
+}
+
+model Contact {
+  id          String   @id @default(uuid())
+  workspaceId String
+
+  email     String?
+  firstName String?
+  lastName  String?
+
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  activities Activity[]
+
+  propertyValues ContactPropertyValue[]
+
+  companyAssociations ContactCompanyAssociation[]
+
+  dealAssociations DealContactAssociation[]
+
+  ticketAssociations TicketContactAssociation[]
+
+  workflowExecutions WorkflowExecution[]
+
+  // Tenant isolation: allows Activity to reference (workspaceId, id) and guarantees same-tenant links.
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+}
+
+model TicketPipeline {
+  id          String   @id @default(uuid())
+  workspaceId String
+
+  name  String
+  order Int
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  stages    TicketStage[]
+  tickets   Ticket[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+}
+
+model TicketStage {
+  id          String   @id @default(uuid())
+  workspaceId String
+  pipelineId  String
+
+  name     String
+  order    Int
+  isClosed Boolean
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  pipeline  TicketPipeline @relation(fields: [workspaceId, pipelineId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+  tickets   Ticket[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+  @@index([workspaceId, pipelineId])
+}
+
+model Ticket {
+  id          String   @id @default(uuid())
+  workspaceId String
+
+  subject     String
+  description String?
+  priority    TicketPriority
+  status      TicketStatus
+
+  pipelineId String
+  stageId    String
+
+  archivedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  pipeline TicketPipeline @relation(fields: [workspaceId, pipelineId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+  stage    TicketStage    @relation(fields: [workspaceId, stageId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  contactAssociations TicketContactAssociation[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+  @@index([workspaceId, pipelineId])
+  @@index([workspaceId, stageId])
+}
+
+model TicketContactAssociation {
+  id          String   @id @default(uuid())
+  workspaceId String
+  ticketId    String
+  contactId   String
+  isRequester Boolean
+
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  // Tenant isolation: composite FKs prevent cross-workspace writes.
+  ticket  Ticket  @relation(fields: [workspaceId, ticketId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+  contact Contact @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([workspaceId])
+  @@index([workspaceId, ticketId])
+  @@index([workspaceId, contactId])
+}
+
+model Pipeline {
+  id          String   @id @default(uuid())
+  workspaceId String
+
+  name  String
+  order Int
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  stages    PipelineStage[]
+  deals     Deal[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+}
+
+model PipelineStage {
+  id          String   @id @default(uuid())
+  workspaceId String
+  pipelineId  String
+
+  name        String
+  order       Int
+  probability Float
+  isClosedWon Boolean
+  isClosedLost Boolean
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  pipeline  Pipeline  @relation(fields: [workspaceId, pipelineId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+  deals     Deal[]
+
+  // Tenant isolation: allows Deal to reference (workspaceId, id) and guarantees same-tenant links.
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+  @@index([workspaceId, pipelineId])
+}
+
+model Deal {
+  id          String   @id @default(uuid())
+  workspaceId String
+
+  name     String
+  amount   Float?
+  currency String?
+
+  pipelineId String
+  stageId    String
+  status     DealStatus
+
+  archivedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  pipeline Pipeline @relation(fields: [workspaceId, pipelineId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+  stage    PipelineStage @relation(fields: [workspaceId, stageId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  contactAssociations DealContactAssociation[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+  @@index([workspaceId, pipelineId])
+  @@index([workspaceId, stageId])
+}
+
+model DealContactAssociation {
+  id          String   @id @default(uuid())
+  workspaceId String
+  dealId      String
+  contactId   String
+  isPrimary   Boolean
+
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  // Tenant isolation: composite FKs prevent cross-workspace writes.
+  deal    Deal    @relation(fields: [workspaceId, dealId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+  contact Contact @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([workspaceId])
+  @@index([workspaceId, dealId])
+  @@index([workspaceId, contactId])
+}
+
+model Company {
+  id          String   @id @default(uuid())
+  workspaceId String
+
+  name      String
+  domain    String?
+  industry  String?
+  sizeRange String?
+  website   String?
+
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  workspace     Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  associations  ContactCompanyAssociation[]
+
+  // Tenant isolation: allows associations to reference (workspaceId, id) and guarantees same-tenant links.
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+}
+
+model ContactCompanyAssociation {
+  id          String            @id @default(uuid())
+  workspaceId String
+  contactId   String
+  companyId   String
+  role        ContactCompanyRole
+
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  // Tenant isolation: composite FKs prevent cross-workspace writes.
+  contact Contact @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+  company Company @relation(fields: [workspaceId, companyId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([workspaceId])
+  @@index([workspaceId, contactId])
+  @@index([workspaceId, companyId])
+}
+
+model ContactPropertyDefinition {
+  id          String              @id @default(uuid())
+  workspaceId String
+
+  // snake_case, unique per workspace (format enforced at API layer).
+  key   String
+  label String
+  type  ContactPropertyType
+
+  options  Json?
+  required Boolean
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  values    ContactPropertyValue[]
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+}
+
+model ContactPropertyValue {
+  id          String   @id @default(uuid())
+  workspaceId String
+  contactId   String
+  propertyKey String
+
+  value     Json
+  createdAt DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  // Tenant isolation: composite FK prevents cross-workspace writes.
+  contact Contact @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  // PropertyKey must exist within the same workspace.
+  definition ContactPropertyDefinition @relation(fields: [workspaceId, propertyKey], references: [workspaceId, key], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([workspaceId])
+  @@index([workspaceId, contactId])
+  @@index([workspaceId, propertyKey])
+}
+
+model Activity {
+  id          String       @id @default(uuid())
+  workspaceId String
+  contactId   String
+
+  type       ActivityType
+  subtype    ActivitySubtype @default(system)
+  actorUserId String
+
+  payload    Json
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  // Tenant isolation: composite FK prevents cross-workspace writes (must match Contact.workspaceId).
+  contact Contact @relation(fields: [workspaceId, contactId], references: [workspaceId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  workflowExecutions WorkflowExecution[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, contactId])
+}
+
+// Phase 7: Automation / Workflows
+
+model Workflow {
+  id          String   @id @default(uuid())
+  workspaceId String
+
+  name         String
+  triggerTypes ActivityType[]
+  enabled      Boolean @default(false)
+
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
+
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  steps      WorkflowStep[]
+  executions WorkflowExecution[]
+
+  @@index([workspaceId])
+}
+
+model WorkflowStep {
+  id         String             @id @default(uuid())
+  workflowId String
+
+  order      Int
+  actionType WorkflowActionType
+  config     Json
+
+  createdAt DateTime @default(now())
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([workflowId, order])
+  @@index([workflowId])
+}
+
+model WorkflowExecution {
+  id String @id @default(uuid())
+
+  workflowId String
+  activityId String
+  contactId  String
+
+  status         WorkflowExecutionStatus
+  executedAt     DateTime
+  idempotencyKey String
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([workflowId, activityId])
+  @@index([workflowId])
+  @@index([activityId])
+  @@index([contactId])
+}

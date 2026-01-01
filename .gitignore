@@ -1,0 +1,22 @@
+.env
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite build output
+web/dist/
+
+# Prisma
+prisma/.env
+
+# OS/editor
+.DS_Store
+.vscode/
+
+# Logs
+logs/
+*.log

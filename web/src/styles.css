@@ -1,0 +1,57 @@
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+
+button {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.nav-rail {
+  width: 56px;
+  transition: width 120ms linear;
+  border-right: 1px solid currentColor;
+}
+
+.nav-rail:hover {
+  width: 180px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+
+.nav-icon {
+  width: 24px;
+  text-align: center;
+  flex: 0 0 24px;
+}
+
+.subnav {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid currentColor;
+}
+
+.page {
+  padding: 12px;
+}
+
+.empty {
+  padding: 12px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+}
