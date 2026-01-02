@@ -11,9 +11,12 @@ import { getDeal } from '../../api/crm.js';
 
 export default function DealRecordPage({ subNav }) {
   const { dealId } = useParams();
-  const { workspaceId } = useSession();
+  const { workspaceId, actorUserId } = useSession();
 
-  const state = useAsync(() => getDeal(workspaceId, dealId), [workspaceId, dealId]);
+  const state = useAsync(
+    () => getDeal(workspaceId, dealId, { actorUserId: actorUserId.trim() }),
+    [workspaceId, dealId, actorUserId]
+  );
 
   const title = state.status === 'success' ? state.data.name : 'Deal';
 
@@ -29,18 +32,18 @@ export default function DealRecordPage({ subNav }) {
       {state.status === 'loading' || state.status === 'idle' ? <div>Loading…</div> : null}
       {state.status === 'error' ? <EmptyState title="Failed to load deal" description={state.error.message} /> : null}
       {state.status === 'success' ? (
-        <dl style={{ margin: 0, display: 'grid', gap: 6 }}>
+        <dl className="ui-kv">
           <div>
-            <dt style={{ fontSize: 12 }}>Status</dt>
-            <dd style={{ margin: 0 }}>{state.data.status}</dd>
+            <dt>Status</dt>
+            <dd>{state.data.status}</dd>
           </div>
           <div>
-            <dt style={{ fontSize: 12 }}>Amount</dt>
-            <dd style={{ margin: 0 }}>{state.data.amount ?? ''} {state.data.currency ?? ''}</dd>
+            <dt>Amount</dt>
+            <dd>{state.data.amount ?? ''} {state.data.currency ?? ''}</dd>
           </div>
           <div>
-            <dt style={{ fontSize: 12 }}>Created</dt>
-            <dd style={{ margin: 0 }}>{new Date(state.data.createdAt).toLocaleString()}</dd>
+            <dt>Created</dt>
+            <dd>{new Date(state.data.createdAt).toLocaleString()}</dd>
           </div>
         </dl>
       ) : null}

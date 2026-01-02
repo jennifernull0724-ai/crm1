@@ -25,25 +25,25 @@ export default function EditPropertiesPanel({ initialValues, onSubmit, onCancel 
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10 }}>
-      <h2 style={{ marginTop: 0 }}>Edit Properties</h2>
+    <form onSubmit={handleSubmit} className="ui-form">
+      <h2 className="ui-h2">Edit Properties</h2>
 
       <label>
         Email
-        <input value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: '100%' }} />
+        <input className="ui-input" value={email} onChange={(e) => setEmail(e.target.value)} />
       </label>
       <label>
         First name
-        <input value={firstName} onChange={(e) => setFirstName(e.target.value)} style={{ width: '100%' }} />
+        <input className="ui-input" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
       </label>
       <label>
         Last name
-        <input value={lastName} onChange={(e) => setLastName(e.target.value)} style={{ width: '100%' }} />
+        <input className="ui-input" value={lastName} onChange={(e) => setLastName(e.target.value)} />
       </label>
 
       {error ? <div className="empty">{error}</div> : null}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+      <div className="ui-actions">
         <button type="button" onClick={onCancel} disabled={submitting}>
           Cancel
         </button>

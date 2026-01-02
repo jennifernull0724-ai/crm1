@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 export default function AssociationPickerModal({ companies, onSubmit, onCancel }) {
   const [companyId, setCompanyId] = useState('');
   const [role, setRole] = useState('other');
+  const [isPrimary, setIsPrimary] = useState(false);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -12,7 +13,7 @@ export default function AssociationPickerModal({ companies, onSubmit, onCancel }
     setSubmitting(true);
     try {
       if (!companyId) throw new Error('Select a company');
-      await onSubmit({ companyId, role });
+      await onSubmit({ companyId, role, isPrimary });
     } catch (err) {
       setError(err?.message ?? 'Submit failed');
     } finally {
@@ -21,12 +22,12 @@ export default function AssociationPickerModal({ companies, onSubmit, onCancel }
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10 }}>
-      <h2 style={{ marginTop: 0 }}>Association Picker</h2>
+    <form onSubmit={handleSubmit} className="ui-form">
+      <h2 className="ui-h2">Association Picker</h2>
 
       <label>
         Company
-        <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} style={{ width: '100%' }}>
+        <select className="ui-select" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
           <option value="" disabled>
             Choose…
           </option>
@@ -40,7 +41,7 @@ export default function AssociationPickerModal({ companies, onSubmit, onCancel }
 
       <label>
         Role
-        <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: '100%' }}>
+        <select className="ui-select" value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="primary">primary</option>
           <option value="employee">employee</option>
           <option value="contractor">contractor</option>
@@ -48,9 +49,14 @@ export default function AssociationPickerModal({ companies, onSubmit, onCancel }
         </select>
       </label>
 
+      <label className="ui-row">
+        <input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} />
+        Primary
+      </label>
+
       {error ? <div className="empty">{error}</div> : null}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+      <div className="ui-actions">
         <button type="button" onClick={onCancel} disabled={submitting}>
           Cancel
         </button>

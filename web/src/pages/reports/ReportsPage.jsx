@@ -1,12 +1,11 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 import ObjectIndexLayout from '../../layouts/ObjectIndexLayout.jsx';
 import EmptyState from '../../components/EmptyState.jsx';
 import { useAsync } from '../../hooks/useAsync.js';
 import { useSession } from '../../state/session.jsx';
 import {
-  getPermissions,
   reportAssociationCoverage,
   reportContactActivity,
   reportDealVelocity,
@@ -16,14 +15,12 @@ import {
 function Table({ rows, columns, rowKey }) {
   if (!Array.isArray(rows) || rows.length === 0) return null;
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <div className="table-wrap">
+      <table className="table">
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c.key} style={{ textAlign: 'left', borderBottom: '1px solid currentColor', padding: '6px 8px' }}>
-                {c.label}
-              </th>
+              <th key={c.key}>{c.label}</th>
             ))}
           </tr>
         </thead>
@@ -31,9 +28,7 @@ function Table({ rows, columns, rowKey }) {
           {rows.map((r) => (
             <tr key={rowKey(r)}>
               {columns.map((c) => (
-                <td key={c.key} style={{ padding: '6px 8px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
-                  {c.render(r)}
-                </td>
+                <td key={c.key}>{c.render(r)}</td>
               ))}
             </tr>
           ))}
@@ -46,32 +41,9 @@ function Table({ rows, columns, rowKey }) {
 export default function ReportsPage({ subNav }) {
   const { workspaceId, actorUserId } = useSession();
 
-  const permsState = useAsync(
-    async () => {
-      if (!workspaceId) return { permissions: [] };
-      if (!actorUserId.trim()) return { permissions: [] };
-      return getPermissions(workspaceId, { actorUserId: actorUserId.trim() });
-    },
-    [workspaceId, actorUserId]
-  );
-
-  if (permsState.status === 'loading' || permsState.status === 'idle') {
-    return (
-      <ObjectIndexLayout title="Reports" subNav={subNav}>
-        <div>Validating access…</div>
-      </ObjectIndexLayout>
-    );
-  }
-
-  if (permsState.status === 'error') {
-    return <Navigate to="/contacts" replace />;
-  }
-
-  const permissions = Array.isArray(permsState.data?.permissions) ? permsState.data.permissions : [];
-  const allowed = permissions.includes('reports:read');
-  if (!allowed) {
-    return <Navigate to="/contacts" replace />;
-  }
+  // Phase 19: route-level gating prevents rendering when denied.
+  // If invoked without a configured actor, render nothing.
+  if (!actorUserId.trim()) return null;
 
   const contactActivityState = useAsync(
     () => reportContactActivity(workspaceId, { actorUserId: actorUserId.trim() }),
@@ -92,9 +64,16 @@ export default function ReportsPage({ subNav }) {
 
   return (
     <ObjectIndexLayout title="Reports" subNav={subNav}>
-      <div style={{ display: 'grid', gap: 16, maxWidth: 900 }}>
+      <div className="ui-stack-lg ui-max-900">
         <section>
-          <h2 style={{ margin: 0 }}>Contact Activity (30d)</h2>
+          <h2 className="ui-h2">Company analytics</h2>
+          <div className="ui-text-xs ui-mt-2">
+            <Link to="/reports/companies">Open company reports</Link>
+          </div>
+        </section>
+
+        <section>
+          <h2 className="ui-h2">Contact Activity (30d)</h2>
           {contactActivityState.status === 'loading' || contactActivityState.status === 'idle' ? <div>Loading…</div> : null}
           {contactActivityState.status === 'error' ? (
             <EmptyState title="Failed to load" description={contactActivityState.error.message} />
@@ -103,7 +82,7 @@ export default function ReportsPage({ subNav }) {
             <>
               {Array.isArray(contactActivityState.data?.volume) && contactActivityState.data.volume.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 8, marginBottom: 6 }}>Volume (last 7/30/90 days)</div>
+                  <div className="ui-text-xs ui-mt-2 ui-mb-2">Volume (last 7/30/90 days)</div>
                   <Table
                     rows={contactActivityState.data.volume}
                     rowKey={(r) => String(r.windowDays)}
@@ -117,7 +96,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(contactActivityState.data?.mixByType) && contactActivityState.data.mixByType.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 8, marginBottom: 6 }}>Count by activity.type</div>
+                  <div className="ui-text-xs ui-mt-2 ui-mb-2">Count by activity.type</div>
                   <Table
                     rows={contactActivityState.data.mixByType}
                     rowKey={(r) => r.type}
@@ -133,7 +112,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(contactActivityState.data?.mixBySubtype) && contactActivityState.data.mixBySubtype.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Mix (email/call/meeting/task/note)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Mix (email/call/meeting/task/note)</div>
                   <Table
                     rows={contactActivityState.data.mixBySubtype}
                     rowKey={(r) => r.subtype}
@@ -147,7 +126,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(contactActivityState.data?.lastActivityByContact30d) && contactActivityState.data.lastActivityByContact30d.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Last activity per contact (30d window)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Last activity per contact (30d window)</div>
                   <Table
                     rows={contactActivityState.data.lastActivityByContact30d}
                     rowKey={(r) => r.contactId}
@@ -166,7 +145,7 @@ export default function ReportsPage({ subNav }) {
               {Array.isArray(contactActivityState.data?.lastActivityByContactAllTime) &&
               contactActivityState.data.lastActivityByContactAllTime.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Last activity per contact (all time)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Last activity per contact (all time)</div>
                   <Table
                     rows={contactActivityState.data.lastActivityByContactAllTime}
                     rowKey={(r) => r.contactId}
@@ -184,7 +163,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(contactActivityState.data?.contactGrowth) && contactActivityState.data.contactGrowth.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Contact growth (created)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Contact growth (created)</div>
                   <Table
                     rows={contactActivityState.data.contactGrowth}
                     rowKey={(r) => String(r.windowDays)}
@@ -200,7 +179,7 @@ export default function ReportsPage({ subNav }) {
         </section>
 
         <section>
-          <h2 style={{ margin: 0 }}>Deal Velocity</h2>
+          <h2 className="ui-h2">Deal Velocity</h2>
           {dealVelocityState.status === 'loading' || dealVelocityState.status === 'idle' ? <div>Loading…</div> : null}
           {dealVelocityState.status === 'error' ? <EmptyState title="Failed to load" description={dealVelocityState.error.message} /> : null}
           {dealVelocityState.status === 'success' ? (
@@ -227,7 +206,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(dealVelocityState.data?.winRateByStage) && dealVelocityState.data.winRateByStage.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Win rate inputs (counts by pipeline/stage/status)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Win rate inputs (counts by pipeline/stage/status)</div>
                   <Table
                     rows={dealVelocityState.data.winRateByStage}
                     rowKey={(r) => `${r.pipelineId}:${r.stageId}:${r.status}`}
@@ -243,7 +222,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(dealVelocityState.data?.avgDealAge) && dealVelocityState.data.avgDealAge.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Average deal age (seconds)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Average deal age (seconds)</div>
                   <Table
                     rows={dealVelocityState.data.avgDealAge}
                     rowKey={(r) => r.status}
@@ -262,7 +241,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(dealVelocityState.data?.dealValueOverTime) && dealVelocityState.data.dealValueOverTime.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Deal value over time (last 90d)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Deal value over time (last 90d)</div>
                   <Table
                     rows={dealVelocityState.data.dealValueOverTime}
                     rowKey={(r) => r.day}
@@ -283,14 +262,14 @@ export default function ReportsPage({ subNav }) {
         </section>
 
         <section>
-          <h2 style={{ margin: 0 }}>Ticket SLA</h2>
+          <h2 className="ui-h2">Ticket SLA</h2>
           {ticketSlaState.status === 'loading' || ticketSlaState.status === 'idle' ? <div>Loading…</div> : null}
           {ticketSlaState.status === 'error' ? <EmptyState title="Failed to load" description={ticketSlaState.error.message} /> : null}
           {ticketSlaState.status === 'success' ? (
             <>
               {Array.isArray(ticketSlaState.data?.slaSummary) && ticketSlaState.data.slaSummary[0] ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 8, marginBottom: 6 }}>Summary</div>
+                  <div className="ui-text-xs ui-mt-2 ui-mb-2">Summary</div>
                   <Table
                     rows={ticketSlaState.data.slaSummary}
                     rowKey={() => 'summary'}
@@ -317,7 +296,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(ticketSlaState.data?.openClosed) && ticketSlaState.data.openClosed.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 8, marginBottom: 6 }}>Open vs closed (current state)</div>
+                  <div className="ui-text-xs ui-mt-2 ui-mb-2">Open vs closed (current state)</div>
                   <Table
                     rows={ticketSlaState.data.openClosed}
                     rowKey={(r) => r.status}
@@ -331,7 +310,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(ticketSlaState.data?.agingBuckets) && ticketSlaState.data.agingBuckets.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Aging buckets (open/waiting)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Aging buckets (open/waiting)</div>
                   <Table
                     rows={ticketSlaState.data.agingBuckets}
                     rowKey={(r) => r.bucket}
@@ -345,7 +324,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(ticketSlaState.data?.sla) && ticketSlaState.data.sla.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Per-ticket metrics (derived from Activities)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Per-ticket metrics (derived from Activities)</div>
                   <Table
                     rows={ticketSlaState.data.sla.slice(0, 50)}
                     rowKey={(r) => r.ticketId}
@@ -378,7 +357,7 @@ export default function ReportsPage({ subNav }) {
                       }
                     ]}
                   />
-                  <div style={{ fontSize: 12, marginTop: 6 }}>
+                  <div className="ui-text-xs ui-mt-2">
                     Showing latest 50 tickets.
                   </div>
                 </>
@@ -390,14 +369,14 @@ export default function ReportsPage({ subNav }) {
         </section>
 
         <section>
-          <h2 style={{ margin: 0 }}>Association Coverage</h2>
+          <h2 className="ui-h2">Association Coverage</h2>
           {assocCoverageState.status === 'loading' || assocCoverageState.status === 'idle' ? <div>Loading…</div> : null}
           {assocCoverageState.status === 'error' ? <EmptyState title="Failed to load" description={assocCoverageState.error.message} /> : null}
           {assocCoverageState.status === 'success' ? (
             <>
               {Array.isArray(assocCoverageState.data?.dealCoverage) && assocCoverageState.data.dealCoverage[0] ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 8, marginBottom: 6 }}>Deals</div>
+                  <div className="ui-text-xs ui-mt-2 ui-mb-2">Deals</div>
                   <Table
                     rows={assocCoverageState.data.dealCoverage}
                     rowKey={() => 'deals'}
@@ -422,7 +401,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(assocCoverageState.data?.ticketCoverage) && assocCoverageState.data.ticketCoverage[0] ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Tickets</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Tickets</div>
                   <Table
                     rows={assocCoverageState.data.ticketCoverage}
                     rowKey={() => 'tickets'}
@@ -447,7 +426,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(assocCoverageState.data?.dealContactsDistribution) && assocCoverageState.data.dealContactsDistribution.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Contacts per deal (distribution)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Contacts per deal (distribution)</div>
                   <Table
                     rows={assocCoverageState.data.dealContactsDistribution}
                     rowKey={(r) => r.bucket}
@@ -461,7 +440,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(assocCoverageState.data?.ticketContactsDistribution) && assocCoverageState.data.ticketContactsDistribution.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Contacts per ticket (distribution)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Contacts per ticket (distribution)</div>
                   <Table
                     rows={assocCoverageState.data.ticketContactsDistribution}
                     rowKey={(r) => r.bucket}
@@ -475,7 +454,7 @@ export default function ReportsPage({ subNav }) {
 
               {Array.isArray(assocCoverageState.data?.churn) && assocCoverageState.data.churn.length ? (
                 <>
-                  <div style={{ fontSize: 12, marginTop: 12, marginBottom: 6 }}>Association churn (30d)</div>
+                  <div className="ui-text-xs ui-mt-3 ui-mb-2">Association churn (30d)</div>
                   <Table
                     rows={assocCoverageState.data.churn}
                     rowKey={(r) => `${r.day}:${r.type}:${r.kind ?? ''}`}

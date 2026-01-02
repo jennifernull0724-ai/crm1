@@ -4,11 +4,15 @@ import { NavLink } from 'react-router-dom';
 export default function PrimaryNavRail({ items }) {
   return (
     <nav className="nav-rail" aria-label="Primary">
-      <div style={{ display: 'grid' }}>
+      <div className="ui-stack-sm">
         {items
           .filter((i) => i.visible)
           .map((i) => (
-            <NavLink key={i.to} to={i.to} className="nav-item">
+            <NavLink
+              key={i.to}
+              to={i.to}
+              className={({ isActive }) => `nav-item${isActive ? ' is-active' : ''}`}
+            >
               <span className="nav-icon" aria-hidden="true">
                 {i.icon}
               </span>

@@ -28,6 +28,12 @@ function requireActorUserId(req, res) {
   return actorUserId.trim();
 }
 
+function getReadActorUserId(req) {
+  const actorUserId = req.header('x-actor-user-id');
+  if (typeof actorUserId !== 'string' || !actorUserId.trim()) return null;
+  return actorUserId.trim();
+}
+
 function parseOccurredAt(input) {
   if (input === undefined || input === null) return nowIso();
   if (typeof input === 'string') {
@@ -106,10 +112,13 @@ function pickCompanyFields(input) {
   const out = {};
   if (input && typeof input === 'object') {
     if (typeof input.name === 'string') out.name = input.name;
+    if (typeof input.legalName === 'string' || input.legalName === null) out.legalName = input.legalName;
     if (typeof input.domain === 'string' || input.domain === null) out.domain = input.domain;
     if (typeof input.industry === 'string' || input.industry === null) out.industry = input.industry;
     if (typeof input.sizeRange === 'string' || input.sizeRange === null) out.sizeRange = input.sizeRange;
     if (typeof input.website === 'string' || input.website === null) out.website = input.website;
+    if (typeof input.country === 'string' || input.country === null) out.country = input.country;
+    if (typeof input.region === 'string' || input.region === null) out.region = input.region;
   }
   return out;
 }
@@ -171,23 +180,41 @@ function getActorPermissions(actorUserId) {
   }
 }
 
-function requireReportReadAccess(req, res, { workspaceId, permissions = [] }) {
-  const actorUserId = requireActorUserId(req, res);
-  if (!actorUserId) return null;
+function requireReadScope(req, res, { workspaceId, resource }) {
+  const actorUserId = getReadActorUserId(req);
+  if (!actorUserId) {
+    res.status(403).end();
+    return null;
+  }
 
   const configuredPerms = getActorPermissions(actorUserId);
   if (!configuredPerms) {
-    res.status(403).json({ error: 'Missing permissions: reports access not configured' });
+    res.status(403).end();
     return null;
   }
 
-  const missing = permissions.filter((p) => !configuredPerms.includes(p));
-  if (missing.length) {
-    res.status(403).json({ error: `Missing permissions: ${missing.join(', ')}` });
+  const resourceKey = typeof resource === 'string' ? resource.trim() : '';
+  const required =
+    resourceKey === 'reports'
+      ? ['reports:read']
+      : resourceKey === 'automation'
+        ? ['automation:read']
+        : [`${resourceKey}:read`];
+
+  if (required.some((p) => !configuredPerms.includes(p))) {
+    res.status(403).end();
     return null;
   }
 
-  return { actorUserId, workspaceId };
+  return { actorUserId, workspaceId, permissions: configuredPerms };
+}
+
+function requireReportReadAccess(req, res, { workspaceId, permissions = [] }) {
+  // Phase 19: reports are guarded via centralized read scope.
+  // On denial: 403 with no response body.
+  // Keep signature for existing call sites; ignore custom permissions.
+  void permissions;
+  return requireReadScope(req, res, { workspaceId, resource: 'reports' });
 }
 
 // Phase 0: Workspace reads (needed for UI shell gating and switcher) ----------
@@ -242,6 +269,9 @@ app.get('/workspaces/:workspaceId/permissions', async (req, res) => {
 app.get('/workspaces/:workspaceId/contacts', async (req, res) => {
   const { workspaceId } = req.params;
   const includeArchived = req.query?.includeArchived === 'true';
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'contacts' });
+  if (!auth) return;
 
   try {
     const contacts = await prisma.contact.findMany({
@@ -846,9 +876,313 @@ app.get('/workspaces/:workspaceId/reports/associations/coverage', async (req, re
   }
 });
 
+// Phase 17 -------------------------------------------------------------------
+// Company analytics (GET-only). Read-only: SELECTs and projections only.
+// Companies do not own Activities; metrics are derived from:
+// - Contact Activities (via current active contact<->company associations)
+// - Association Activities with payload.kind='contact_company'
+
+// GET /workspaces/:workspaceId/reports/companies/activity-volume
+// Company activity volume per company (7/30/90) for currently associated contacts.
+app.get('/workspaces/:workspaceId/reports/companies/activity-volume', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const rows = await prisma.$queryRaw`
+      WITH latest AS (
+        SELECT DISTINCT ON (cca."companyId", cca."contactId")
+          cca."companyId" AS company_id,
+          cca."contactId" AS contact_id,
+          cca."archivedAt" AS archived_at,
+          cca."createdAt" AS created_at
+        FROM "ContactCompanyAssociation" cca
+        WHERE cca."workspaceId" = ${workspaceId}
+        ORDER BY cca."companyId", cca."contactId", cca."createdAt" DESC
+      ),
+      active AS (
+        SELECT * FROM latest WHERE archived_at IS NULL
+      ),
+      recent AS (
+        SELECT a.id, a."contactId", a."occurredAt"
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."occurredAt" >= (NOW() - INTERVAL '90 days')
+      )
+      SELECT
+        c.id AS "companyId",
+        c.name AS "companyName",
+        COUNT(recent.id) FILTER (WHERE recent."occurredAt" >= (NOW() - INTERVAL '7 days'))::int AS "count7d",
+        COUNT(recent.id) FILTER (WHERE recent."occurredAt" >= (NOW() - INTERVAL '30 days'))::int AS "count30d",
+        COUNT(recent.id)::int AS "count90d"
+      FROM "Company" c
+      LEFT JOIN active a ON a.company_id = c.id
+      LEFT JOIN recent ON recent."contactId" = a.contact_id
+      WHERE c."workspaceId" = ${workspaceId}
+        AND c."archivedAt" IS NULL
+      GROUP BY c.id, c.name
+      ORDER BY "count30d" DESC, c.name ASC, c.id ASC;
+    `;
+
+    res.status(200).json({ rows, windows: [7, 30, 90] });
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/reports/companies/last-activity
+// Last Activity per company for currently associated contacts.
+app.get('/workspaces/:workspaceId/reports/companies/last-activity', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const rows = await prisma.$queryRaw`
+      WITH latest AS (
+        SELECT DISTINCT ON (cca."companyId", cca."contactId")
+          cca."companyId" AS company_id,
+          cca."contactId" AS contact_id,
+          cca."archivedAt" AS archived_at,
+          cca."createdAt" AS created_at
+        FROM "ContactCompanyAssociation" cca
+        WHERE cca."workspaceId" = ${workspaceId}
+        ORDER BY cca."companyId", cca."contactId", cca."createdAt" DESC
+      ),
+      active AS (
+        SELECT * FROM latest WHERE archived_at IS NULL
+      ),
+      joined AS (
+        SELECT
+          c.id AS company_id,
+          c.name AS company_name,
+          act.id AS activity_id,
+          act.type AS activity_type,
+          act.subtype AS activity_subtype,
+          act."occurredAt" AS occurred_at,
+          act."createdAt" AS created_at
+        FROM "Company" c
+        LEFT JOIN active a ON a.company_id = c.id
+        LEFT JOIN "Activity" act
+          ON act."workspaceId" = ${workspaceId}
+         AND act."contactId" = a.contact_id
+        WHERE c."workspaceId" = ${workspaceId}
+          AND c."archivedAt" IS NULL
+      )
+      SELECT DISTINCT ON (company_id)
+        company_id AS "companyId",
+        company_name AS "companyName",
+        occurred_at AS "lastOccurredAt",
+        activity_type AS "lastType",
+        activity_subtype AS "lastSubtype"
+      FROM joined
+      ORDER BY company_id ASC, occurred_at DESC NULLS LAST, created_at DESC NULLS LAST, activity_id DESC NULLS LAST;
+    `;
+
+    res.status(200).json({ rows });
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/reports/companies/activity-mix
+// Activity mix by subtype (30d) per company for currently associated contacts.
+app.get('/workspaces/:workspaceId/reports/companies/activity-mix', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const rows = await prisma.$queryRaw`
+      WITH latest AS (
+        SELECT DISTINCT ON (cca."companyId", cca."contactId")
+          cca."companyId" AS company_id,
+          cca."contactId" AS contact_id,
+          cca."archivedAt" AS archived_at,
+          cca."createdAt" AS created_at
+        FROM "ContactCompanyAssociation" cca
+        WHERE cca."workspaceId" = ${workspaceId}
+        ORDER BY cca."companyId", cca."contactId", cca."createdAt" DESC
+      ),
+      active AS (
+        SELECT * FROM latest WHERE archived_at IS NULL
+      )
+      SELECT
+        c.id AS "companyId",
+        c.name AS "companyName",
+        a.subtype AS "subtype",
+        COUNT(*)::int AS "count"
+      FROM "Company" c
+      JOIN active ac ON ac.company_id = c.id
+      JOIN "Activity" a
+        ON a."workspaceId" = ${workspaceId}
+       AND a."contactId" = ac.contact_id
+       AND a."occurredAt" >= (NOW() - INTERVAL '30 days')
+      WHERE c."workspaceId" = ${workspaceId}
+        AND c."archivedAt" IS NULL
+      GROUP BY c.id, c.name, a.subtype
+      ORDER BY c.name ASC, "count" DESC, a.subtype ASC;
+    `;
+
+    res.status(200).json({ windowDays: 30, rows });
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/reports/companies/contact-coverage
+// Association coverage per company (active contacts, primary count, and engagement for last 30 days).
+app.get('/workspaces/:workspaceId/reports/companies/contact-coverage', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const rows = await prisma.$queryRaw`
+      WITH latest AS (
+        SELECT DISTINCT ON (cca."companyId", cca."contactId")
+          cca."companyId" AS company_id,
+          cca."contactId" AS contact_id,
+          cca."isPrimary" AS is_primary,
+          cca."archivedAt" AS archived_at,
+          cca."createdAt" AS created_at
+        FROM "ContactCompanyAssociation" cca
+        WHERE cca."workspaceId" = ${workspaceId}
+        ORDER BY cca."companyId", cca."contactId", cca."createdAt" DESC
+      ),
+      active AS (
+        SELECT * FROM latest WHERE archived_at IS NULL
+      ),
+      act30 AS (
+        SELECT a."contactId" AS contact_id, a."occurredAt" AS occurred_at
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a."occurredAt" >= (NOW() - INTERVAL '30 days')
+      )
+      SELECT
+        c.id AS "companyId",
+        c.name AS "companyName",
+        COUNT(DISTINCT ac.contact_id)::int AS "activeContacts",
+        COUNT(DISTINCT ac.contact_id) FILTER (WHERE ac.is_primary = true)::int AS "primaryContacts",
+        COUNT(DISTINCT ac.contact_id) FILTER (
+          WHERE EXISTS (
+            SELECT 1 FROM act30 a WHERE a.contact_id = ac.contact_id
+          )
+        )::int AS "activeContactsWithActivity30d",
+        CASE
+          WHEN COUNT(DISTINCT ac.contact_id) = 0 THEN 0
+          ELSE (COUNT(act30.occurred_at)::double precision / NULLIF(COUNT(DISTINCT ac.contact_id), 0)::double precision)
+        END AS "avgActivitiesPerActiveContact30d"
+      FROM "Company" c
+      LEFT JOIN active ac ON ac.company_id = c.id
+      LEFT JOIN act30 ON act30.contact_id = ac.contact_id
+      WHERE c."workspaceId" = ${workspaceId}
+        AND c."archivedAt" IS NULL
+      GROUP BY c.id, c.name
+      ORDER BY "activeContacts" DESC, c.name ASC, c.id ASC;
+    `;
+
+    res.status(200).json({ windowDays: 30, rows });
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/reports/companies/growth
+// Growth derived from association Activities (payload.kind='contact_company').
+app.get('/workspaces/:workspaceId/reports/companies/growth', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = requireReportReadAccess(req, res, { workspaceId, permissions: ['reports:read'] });
+  if (!auth) return;
+
+  try {
+    const rows = await prisma.$queryRaw`
+      WITH assoc_events AS (
+        SELECT
+          (a.payload->>'companyId') AS company_id,
+          a.type AS type,
+          (a.payload->>'event') AS event,
+          a."occurredAt" AS occurred_at
+        FROM "Activity" a
+        WHERE a."workspaceId" = ${workspaceId}
+          AND a.type IN ('association_added', 'association_removed')
+          AND (a.payload->>'kind') = 'contact_company'
+          AND (a.payload->>'companyId') IS NOT NULL
+      )
+      SELECT
+        c.id AS "companyId",
+        c.name AS "companyName",
+
+        COUNT(*) FILTER (
+          WHERE type = 'association_added'
+            AND event = 'association_added'
+            AND occurred_at >= (NOW() - INTERVAL '7 days')
+        )::int AS "added7d",
+        COUNT(*) FILTER (
+          WHERE type = 'association_removed'
+            AND occurred_at >= (NOW() - INTERVAL '7 days')
+        )::int AS "removed7d",
+
+        COUNT(*) FILTER (
+          WHERE type = 'association_added'
+            AND event = 'association_added'
+            AND occurred_at >= (NOW() - INTERVAL '30 days')
+        )::int AS "added30d",
+        COUNT(*) FILTER (
+          WHERE type = 'association_removed'
+            AND occurred_at >= (NOW() - INTERVAL '30 days')
+        )::int AS "removed30d",
+
+        COUNT(*) FILTER (
+          WHERE type = 'association_added'
+            AND event = 'association_added'
+            AND occurred_at >= (NOW() - INTERVAL '90 days')
+        )::int AS "added90d",
+        COUNT(*) FILTER (
+          WHERE type = 'association_removed'
+            AND occurred_at >= (NOW() - INTERVAL '90 days')
+        )::int AS "removed90d"
+      FROM "Company" c
+      LEFT JOIN assoc_events e ON e.company_id = c.id
+      WHERE c."workspaceId" = ${workspaceId}
+        AND c."archivedAt" IS NULL
+      GROUP BY c.id, c.name
+      ORDER BY (
+        COUNT(*) FILTER (
+          WHERE type = 'association_added'
+            AND event = 'association_added'
+            AND occurred_at >= (NOW() - INTERVAL '30 days')
+        )
+        -
+        COUNT(*) FILTER (
+          WHERE type = 'association_removed'
+            AND occurred_at >= (NOW() - INTERVAL '30 days')
+        )
+      ) DESC,
+      c.name ASC,
+      c.id ASC;
+    `;
+
+    const out = rows.map((r) => ({
+      ...r,
+      net7d: (r.added7d ?? 0) - (r.removed7d ?? 0),
+      net30d: (r.added30d ?? 0) - (r.removed30d ?? 0),
+      net90d: (r.added90d ?? 0) - (r.removed90d ?? 0)
+    }));
+
+    res.status(200).json({ windows: [7, 30, 90], rows: out });
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
 // GET /workspaces/:workspaceId/contacts/:contactId
 app.get('/workspaces/:workspaceId/contacts/:contactId', async (req, res) => {
   const { workspaceId, contactId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'contacts' });
+  if (!auth) return;
 
   try {
     const contact = await prisma.contact.findUnique({
@@ -1127,6 +1461,9 @@ app.post('/workspaces/:workspaceId/workflows/:workflowId/disable', async (req, r
 app.get('/workspaces/:workspaceId/workflows', async (req, res) => {
   const { workspaceId } = req.params;
 
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'automation' });
+  if (!auth) return;
+
   try {
     const workflows = await prisma.workflow.findMany({
       where: { workspaceId },
@@ -1255,6 +1592,9 @@ app.post('/workspaces/:workspaceId/contacts/:contactId/archive', async (req, res
 app.get('/workspaces/:workspaceId/contacts/:contactId/timeline', async (req, res) => {
   const { workspaceId, contactId } = req.params;
 
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'contacts' });
+  if (!auth) return;
+
   try {
     const contact = await prisma.contact.findUnique({
       where: { workspaceId_id: { workspaceId, id: contactId } }
@@ -1330,6 +1670,10 @@ app.post('/workspaces/:workspaceId/contact-properties', async (req, res) => {
 // GET /workspaces/:workspaceId/contact-properties
 app.get('/workspaces/:workspaceId/contact-properties', async (req, res) => {
   const { workspaceId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'contacts' });
+  if (!auth) return;
+
   try {
     const defs = await prisma.contactPropertyDefinition.findMany({
       where: { workspaceId },
@@ -1509,59 +1853,31 @@ app.post('/workspaces/:workspaceId/companies', async (req, res) => {
 
   const { workspaceId } = req.params;
   const fields = pickCompanyFields(req.body);
-  const emitToContactId = req.body?.contactId;
 
   if (typeof fields.name !== 'string' || !fields.name.trim()) {
     res.status(400).json({ error: 'Invalid company name' });
     return;
   }
-  if (typeof emitToContactId !== 'string' || !emitToContactId) {
-    res.status(400).json({ error: 'contactId is required for Activity emission' });
-    return;
-  }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const contact = await tx.contact.findUnique({
-        where: { workspaceId_id: { workspaceId, id: emitToContactId } }
-      });
-      if (!contact) {
-        const e = new Error('Contact not found for Activity emission');
-        e.statusCode = 404;
-        throw e;
+    const company = await prisma.company.create({
+      data: {
+        workspaceId,
+        name: fields.name.trim(),
+        legalName: fields.legalName ?? null,
+        domain: fields.domain ?? null,
+        industry: fields.industry ?? null,
+        sizeRange: fields.sizeRange ?? null,
+        website: fields.website ?? null,
+        country: fields.country ?? null,
+        region: fields.region ?? null,
+        archivedAt: null,
+        createdAt: nowIso(),
+        updatedAt: nowIso()
       }
-
-      const company = await tx.company.create({
-        data: {
-          workspaceId,
-          name: fields.name.trim(),
-          domain: fields.domain ?? null,
-          industry: fields.industry ?? null,
-          sizeRange: fields.sizeRange ?? null,
-          website: fields.website ?? null,
-          archivedAt: null,
-          createdAt: nowIso()
-        }
-      });
-
-      // Company never owns Activity: emit to a Contact.
-      await tx.activity.create({
-        data: {
-          workspaceId,
-          contactId: emitToContactId,
-          type: 'company_created',
-          subtype: 'system',
-          actorUserId,
-          payload: { companyId: company.id },
-          occurredAt: nowIso(),
-          createdAt: nowIso()
-        }
-      });
-
-      return company;
     });
 
-    res.status(201).json(result);
+    res.status(201).json(company);
   } catch (err) {
     res.status(err.statusCode ?? 400).json({ error: err.message ?? 'Bad Request' });
   }
@@ -1570,6 +1886,10 @@ app.post('/workspaces/:workspaceId/companies', async (req, res) => {
 // GET /workspaces/:workspaceId/companies
 app.get('/workspaces/:workspaceId/companies', async (req, res) => {
   const { workspaceId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'companies' });
+  if (!auth) return;
+
   try {
     const companies = await prisma.company.findMany({
       where: { workspaceId },
@@ -1584,6 +1904,10 @@ app.get('/workspaces/:workspaceId/companies', async (req, res) => {
 // GET /workspaces/:workspaceId/companies/:companyId
 app.get('/workspaces/:workspaceId/companies/:companyId', async (req, res) => {
   const { workspaceId, companyId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'companies' });
+  if (!auth) return;
+
   try {
     const company = await prisma.company.findUnique({
       where: { id: companyId }
@@ -1598,69 +1922,164 @@ app.get('/workspaces/:workspaceId/companies/:companyId', async (req, res) => {
   }
 });
 
-// POST /workspaces/:workspaceId/companies/:companyId/archive
-app.post('/workspaces/:workspaceId/companies/:companyId/archive', async (req, res) => {
+// PATCH /workspaces/:workspaceId/companies/:companyId
+// Firmographic updates only. Companies do not own history.
+app.patch('/workspaces/:workspaceId/companies/:companyId', async (req, res) => {
   if (rejectDemoMockSample(req, res)) return;
 
   const actorUserId = requireActorUserId(req, res);
   if (!actorUserId) return;
 
   const { workspaceId, companyId } = req.params;
-  const emitToContactId = req.body?.contactId;
+  const fields = pickCompanyFields(req.body);
 
-  if (typeof emitToContactId !== 'string' || !emitToContactId) {
-    res.status(400).json({ error: 'contactId is required for Activity emission' });
+  if (fields.name !== undefined && (typeof fields.name !== 'string' || !fields.name.trim())) {
+    res.status(400).json({ error: 'Invalid company name' });
     return;
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const contact = await tx.contact.findUnique({
-        where: { workspaceId_id: { workspaceId, id: emitToContactId } }
-      });
-      if (!contact) {
-        const e = new Error('Contact not found for Activity emission');
-        e.statusCode = 404;
-        throw e;
-      }
-
-      const company = await tx.company.findUnique({ where: { id: companyId } });
-      if (!company || company.workspaceId !== workspaceId) {
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.company.findUnique({ where: { id: companyId } });
+      if (!existing || existing.workspaceId !== workspaceId) {
         const e = new Error('Company not found');
         e.statusCode = 404;
         throw e;
       }
-      if (company.archivedAt) {
-        const e = new Error('Company already archived');
+      if (existing.archivedAt) {
+        const e = new Error('Company is archived');
         e.statusCode = 409;
         throw e;
       }
 
-      const archivedAt = nowIso();
-      const updated = await tx.company.update({
+      return tx.company.update({
         where: { id: companyId },
-        data: { archivedAt }
-      });
-
-      await tx.activity.create({
         data: {
-          workspaceId,
-          contactId: emitToContactId,
-          type: 'company_archived',
-          subtype: 'system',
-          actorUserId,
-          payload: { companyId, archivedAt },
-          occurredAt: archivedAt,
-          createdAt: nowIso()
+          ...(fields.name !== undefined ? { name: fields.name.trim() } : {}),
+          ...(fields.legalName !== undefined ? { legalName: fields.legalName } : {}),
+          ...(fields.domain !== undefined ? { domain: fields.domain } : {}),
+          ...(fields.industry !== undefined ? { industry: fields.industry } : {}),
+          ...(fields.sizeRange !== undefined ? { sizeRange: fields.sizeRange } : {}),
+          ...(fields.website !== undefined ? { website: fields.website } : {}),
+          ...(fields.country !== undefined ? { country: fields.country } : {}),
+          ...(fields.region !== undefined ? { region: fields.region } : {}),
+          updatedAt: nowIso()
         }
       });
-
-      return updated;
     });
 
-    res.status(200).json(result);
+    res.status(200).json(updated);
   } catch (err) {
     res.status(err.statusCode ?? 400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// POST /workspaces/:workspaceId/companies/:companyId/archive
+app.post('/workspaces/:workspaceId/companies/:companyId/archive', async (req, res) => {
+  res.status(405).end();
+});
+
+// GET /workspaces/:workspaceId/contacts/:contactId/companies
+// Read-only projection of current associations (append-only semantics).
+app.get('/workspaces/:workspaceId/contacts/:contactId/companies', async (req, res) => {
+  const { workspaceId, contactId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'companies' });
+  if (!auth) return;
+
+  try {
+    const contact = await prisma.contact.findUnique({
+      where: { workspaceId_id: { workspaceId, id: contactId } }
+    });
+    if (!contact) {
+      res.status(404).json({ error: 'Contact not found' });
+      return;
+    }
+
+    const rows = await prisma.contactCompanyAssociation.findMany({
+      where: { workspaceId, contactId },
+      orderBy: [{ createdAt: 'desc' }]
+    });
+
+    const latestByCompany = new Map();
+    for (const r of rows) {
+      if (!latestByCompany.has(r.companyId)) latestByCompany.set(r.companyId, r);
+    }
+
+    const active = [...latestByCompany.values()].filter((r) => r.archivedAt === null);
+    const companyIds = active.map((r) => r.companyId);
+
+    const companies = companyIds.length
+      ? await prisma.company.findMany({
+        where: { workspaceId, id: { in: companyIds } },
+        orderBy: [{ createdAt: 'asc' }]
+      })
+      : [];
+
+    const companyById = new Map(companies.map((c) => [c.id, c]));
+
+    const out = active
+      .map((a) => ({
+        company: companyById.get(a.companyId) ?? null,
+        role: a.role,
+        isPrimary: a.isPrimary
+      }))
+      .filter((r) => r.company !== null);
+
+    res.status(200).json(out);
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
+// GET /workspaces/:workspaceId/companies/:companyId/contacts
+// Read-only projection of current associations (append-only semantics).
+app.get('/workspaces/:workspaceId/companies/:companyId/contacts', async (req, res) => {
+  const { workspaceId, companyId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'companies' });
+  if (!auth) return;
+
+  try {
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    if (!company || company.workspaceId !== workspaceId) {
+      res.status(404).json({ error: 'Company not found' });
+      return;
+    }
+
+    const rows = await prisma.contactCompanyAssociation.findMany({
+      where: { workspaceId, companyId },
+      orderBy: [{ createdAt: 'desc' }]
+    });
+
+    const latestByContact = new Map();
+    for (const r of rows) {
+      if (!latestByContact.has(r.contactId)) latestByContact.set(r.contactId, r);
+    }
+
+    const active = [...latestByContact.values()].filter((r) => r.archivedAt === null);
+    const contactIds = active.map((r) => r.contactId);
+
+    const contacts = contactIds.length
+      ? await prisma.contact.findMany({
+        where: { workspaceId, id: { in: contactIds } },
+        orderBy: [{ createdAt: 'asc' }]
+      })
+      : [];
+
+    const contactById = new Map(contacts.map((c) => [c.id, c]));
+
+    const out = active
+      .map((a) => ({
+        contact: contactById.get(a.contactId) ?? null,
+        role: a.role,
+        isPrimary: a.isPrimary
+      }))
+      .filter((r) => r.contact !== null);
+
+    res.status(200).json(out);
+  } catch (err) {
+    res.status(400).json({ error: err.message ?? 'Bad Request' });
   }
 });
 
@@ -1677,6 +2096,14 @@ app.post('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', as
     res.status(400).json({ error: 'Invalid role' });
     return;
   }
+
+  const occurredAt = parseOccurredAt(req.body?.occurredAt);
+  if (!occurredAt) {
+    res.status(400).json({ error: 'Invalid occurredAt' });
+    return;
+  }
+
+  const isPrimary = typeof req.body?.isPrimary === 'boolean' ? req.body.isPrimary : false;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -1716,7 +2143,6 @@ app.post('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', as
         throw e;
       }
 
-      const occurredAt = nowIso();
       const activity = await tx.activity.create({
         data: {
           workspaceId,
@@ -1724,7 +2150,7 @@ app.post('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', as
           type: 'association_added',
           subtype: 'system',
           actorUserId,
-          payload: { kind: 'contact_company', companyId, role },
+          payload: { kind: 'contact_company', companyId, role, isPrimary, event: 'association_added' },
           occurredAt,
           createdAt: nowIso()
         }
@@ -1736,6 +2162,7 @@ app.post('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', as
           contactId,
           companyId,
           role,
+          isPrimary,
           createdAt: nowIso(),
           archivedAt: null
         }
@@ -1750,6 +2177,124 @@ app.post('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', as
   }
 });
 
+// PATCH /workspaces/:workspaceId/contacts/:contactId/companies/:companyId
+// Updates association role/isPrimary via append-only rows.
+app.patch('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', async (req, res) => {
+  if (rejectDemoMockSample(req, res)) return;
+
+  const actorUserId = requireActorUserId(req, res);
+  if (!actorUserId) return;
+
+  const { workspaceId, contactId, companyId } = req.params;
+  const role = req.body?.role === undefined ? undefined : parseCompanyRole(req.body?.role);
+  const isPrimary = req.body?.isPrimary === undefined ? undefined : (typeof req.body.isPrimary === 'boolean' ? req.body.isPrimary : null);
+
+  if (req.body?.role !== undefined && !role) {
+    res.status(400).json({ error: 'Invalid role' });
+    return;
+  }
+  if (req.body?.isPrimary !== undefined && isPrimary === null) {
+    res.status(400).json({ error: 'Invalid isPrimary' });
+    return;
+  }
+
+  const occurredAt = parseOccurredAt(req.body?.occurredAt);
+  if (!occurredAt) {
+    res.status(400).json({ error: 'Invalid occurredAt' });
+    return;
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const contact = await tx.contact.findUnique({
+        where: { workspaceId_id: { workspaceId, id: contactId } }
+      });
+      if (!contact) {
+        const e = new Error('Contact not found');
+        e.statusCode = 404;
+        throw e;
+      }
+      if (contact.archivedAt) {
+        const e = new Error('Contact is archived');
+        e.statusCode = 409;
+        throw e;
+      }
+
+      const company = await tx.company.findUnique({ where: { id: companyId } });
+      if (!company || company.workspaceId !== workspaceId) {
+        const e = new Error('Company not found');
+        e.statusCode = 404;
+        throw e;
+      }
+      if (company.archivedAt) {
+        const e = new Error('Company is archived');
+        e.statusCode = 409;
+        throw e;
+      }
+
+      const latest = await tx.contactCompanyAssociation.findFirst({
+        where: { workspaceId, contactId, companyId },
+        orderBy: [{ createdAt: 'desc' }]
+      });
+      if (!latest || latest.archivedAt) {
+        const e = new Error('No active association');
+        e.statusCode = 404;
+        throw e;
+      }
+
+      const nextRole = role !== undefined ? role : latest.role;
+      const nextIsPrimary = isPrimary !== undefined ? isPrimary : latest.isPrimary;
+
+      const roleChanged = nextRole !== latest.role;
+      const primaryChanged = nextIsPrimary !== latest.isPrimary;
+      if (!roleChanged && !primaryChanged) {
+        const e = new Error('No changes');
+        e.statusCode = 400;
+        throw e;
+      }
+
+      const event = primaryChanged ? 'primary_set' : 'role_changed';
+
+      const activity = await tx.activity.create({
+        data: {
+          workspaceId,
+          contactId,
+          type: 'association_added',
+          subtype: 'system',
+          actorUserId,
+          payload: {
+            kind: 'contact_company',
+            companyId,
+            event,
+            from: { role: latest.role, isPrimary: latest.isPrimary },
+            to: { role: nextRole, isPrimary: nextIsPrimary }
+          },
+          occurredAt,
+          createdAt: nowIso()
+        }
+      });
+
+      const association = await tx.contactCompanyAssociation.create({
+        data: {
+          workspaceId,
+          contactId,
+          companyId,
+          role: nextRole,
+          isPrimary: nextIsPrimary,
+          createdAt: nowIso(),
+          archivedAt: null
+        }
+      });
+
+      return { activity, association };
+    });
+
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(err.statusCode ?? 400).json({ error: err.message ?? 'Bad Request' });
+  }
+});
+
 // DELETE /workspaces/:workspaceId/contacts/:contactId/companies/:companyId
 app.delete('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', async (req, res) => {
   if (rejectDemoMockSample(req, res)) return;
@@ -1758,6 +2303,12 @@ app.delete('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', 
   if (!actorUserId) return;
 
   const { workspaceId, contactId, companyId } = req.params;
+
+  const occurredAt = parseOccurredAt(req.body?.occurredAt);
+  if (!occurredAt) {
+    res.status(400).json({ error: 'Invalid occurredAt' });
+    return;
+  }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -1792,7 +2343,6 @@ app.delete('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', 
         throw e;
       }
 
-      const occurredAt = nowIso();
       const activity = await tx.activity.create({
         data: {
           workspaceId,
@@ -1800,7 +2350,7 @@ app.delete('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', 
           type: 'association_removed',
           subtype: 'system',
           actorUserId,
-          payload: { kind: 'contact_company', companyId, role: latest.role },
+          payload: { kind: 'contact_company', companyId, role: latest.role, isPrimary: latest.isPrimary, event: 'association_removed' },
           occurredAt,
           createdAt: nowIso()
         }
@@ -1813,6 +2363,7 @@ app.delete('/workspaces/:workspaceId/contacts/:contactId/companies/:companyId', 
           contactId,
           companyId,
           role: latest.role,
+          isPrimary: latest.isPrimary,
           createdAt: nowIso(),
           archivedAt: occurredAt
         }
@@ -1972,6 +2523,10 @@ app.post('/workspaces/:workspaceId/deals', async (req, res) => {
 // GET /workspaces/:workspaceId/deals
 app.get('/workspaces/:workspaceId/deals', async (req, res) => {
   const { workspaceId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'deals' });
+  if (!auth) return;
+
   try {
     const deals = await prisma.deal.findMany({
       where: { workspaceId },
@@ -1986,6 +2541,10 @@ app.get('/workspaces/:workspaceId/deals', async (req, res) => {
 // GET /workspaces/:workspaceId/deals/:dealId
 app.get('/workspaces/:workspaceId/deals/:dealId', async (req, res) => {
   const { workspaceId, dealId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'deals' });
+  if (!auth) return;
+
   try {
     const deal = await prisma.deal.findUnique({ where: { id: dealId } });
     if (!deal || deal.workspaceId !== workspaceId) {
@@ -2621,6 +3180,9 @@ app.post('/workspaces/:workspaceId/tickets', async (req, res) => {
 app.get('/workspaces/:workspaceId/contacts/:contactId/associated-tickets', async (req, res) => {
   const { workspaceId, contactId } = req.params;
 
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'tickets' });
+  if (!auth) return;
+
   try {
     const result = await prisma.$transaction(async (tx) => {
       const contact = await tx.contact.findUnique({ where: { workspaceId_id: { workspaceId, id: contactId } } });
@@ -2663,6 +3225,10 @@ app.get('/workspaces/:workspaceId/contacts/:contactId/associated-tickets', async
 // GET /workspaces/:workspaceId/tickets
 app.get('/workspaces/:workspaceId/tickets', async (req, res) => {
   const { workspaceId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'tickets' });
+  if (!auth) return;
+
   try {
     const tickets = await prisma.ticket.findMany({
       where: { workspaceId },
@@ -2677,6 +3243,10 @@ app.get('/workspaces/:workspaceId/tickets', async (req, res) => {
 // GET /workspaces/:workspaceId/tickets/:ticketId
 app.get('/workspaces/:workspaceId/tickets/:ticketId', async (req, res) => {
   const { workspaceId, ticketId } = req.params;
+
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'tickets' });
+  if (!auth) return;
+
   try {
     const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket || ticket.workspaceId !== workspaceId) {
@@ -3274,6 +3844,9 @@ app.post('/workspaces/:workspaceId/contacts/:contactId/meetings', async (req, re
 app.get('/workspaces/:workspaceId/contacts/:contactId/activities', async (req, res) => {
   const { workspaceId, contactId } = req.params;
 
+  const auth = requireReadScope(req, res, { workspaceId, resource: 'contacts' });
+  if (!auth) return;
+
   const limitRaw = req.query?.limit;
   const cursor = req.query?.cursor;
   const limit = typeof limitRaw === 'string' ? Number(limitRaw) : 50;
@@ -3307,6 +3880,34 @@ app.get('/workspaces/:workspaceId/contacts/:contactId/activities', async (req, r
 });
 
 const port = Number(process.env.PORT ?? 3000);
+
+app.post('/api/stripe/create-checkout-session', async (req, res) => {
+  try {
+    const { priceId, seatCount, allowCoupons, lineItems } = req.body;
+
+    if (!priceId) {
+      res.status(400).json({ error: 'priceId is required' });
+      return;
+    }
+
+    const stripe = (await import('stripe')).default(process.env.STRIPE_SECRET_KEY);
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: lineItems || [{ price: priceId, quantity: 1 }],
+      allow_promotion_codes: allowCoupons === true,
+      success_url: `${req.headers.origin || 'http://localhost:5173'}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${req.headers.origin || 'http://localhost:5173'}/pricing`
+    });
+
+    res.status(200).json({ sessionId: session.id });
+  } catch (err) {
+    console.error('Stripe checkout error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create checkout session' });
+  }
+});
+
 app.listen(port, () => {
   // No UI. API only.
   console.log(`crm1 api listening on :${port}`);

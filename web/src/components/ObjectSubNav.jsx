@@ -7,7 +7,11 @@ export default function ObjectSubNav({ items }) {
       {items
         .filter((i) => i.visible)
         .map((i) => (
-          <NavLink key={i.to} to={i.to} style={{ textDecoration: 'none' }}>
+          <NavLink
+            key={i.to}
+            to={i.to}
+            className={({ isActive }) => `subnav-item${isActive ? ' is-active' : ''}`}
+          >
             {i.label}
           </NavLink>
         ))}

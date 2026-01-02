@@ -53,25 +53,25 @@ export default function ActivityTimeline({ activities }) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div className="timeline">
       {groups.map((g) => (
-        <div key={g.key} style={{ display: 'grid', gap: 8 }}>
-          <div style={{ fontWeight: 700 }}>{g.key}</div>
+        <div key={g.key} className="timeline-group">
+          <div className="timeline-date">{g.key}</div>
           {g.items.map((a) => (
-            <div key={a.id} style={{ border: '1px solid currentColor', borderRadius: 10, padding: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <span aria-hidden="true" style={{ width: 18, textAlign: 'center' }}>
+            <div key={a.id} className="timeline-item">
+              <div className="timeline-top">
+                <div className="timeline-type">
+                  <span aria-hidden="true" className="timeline-icon">
                     {subtypeIcon(a.subtype)}
                   </span>
-                  <div style={{ fontWeight: 600 }}>{a.type}</div>
+                  <div className="timeline-strong">{a.type}</div>
                 </div>
-                <div style={{ fontSize: 12 }}>{formatDateTime(a.occurredAt)}</div>
+                <div className="timeline-meta">{formatDateTime(a.occurredAt)}</div>
               </div>
-              <div style={{ marginTop: 6, fontSize: 12 }}>actor: {a.actorUserId}</div>
-              <details style={{ marginTop: 8 }}>
+              <div className="timeline-actor">actor: {a.actorUserId}</div>
+              <details className="timeline-details">
                 <summary>payload</summary>
-                <pre style={{ margin: 0, overflow: 'auto' }}>{JSON.stringify(a.payload ?? null, null, 2)}</pre>
+                <pre className="timeline-pre">{JSON.stringify(a.payload ?? null, null, 2)}</pre>
               </details>
             </div>
           ))}

@@ -4,7 +4,12 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm start\" \"npm --prefix web run dev\"",
-    "ci:phase14": "node scripts/phase14-guards.mjs",
+    "build": "npm --prefix web run build",
+    "vercel-build": "npm --prefix web run build",
+    "ci:phase14": "node scripts/phase16-guards.mjs",
+    "ci:phase16": "node scripts/phase16-guards.mjs",
+    "ci:phase17": "node scripts/phase17-guards.mjs",
+    "ci:phase19": "node scripts/phase19-guards.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "start": "node src/server.js"
@@ -12,7 +17,9 @@
   "dependencies": {
     "@prisma/client": "^6.2.0",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "resend": "^4.0.1",
+    "stripe": "^17.5.0"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

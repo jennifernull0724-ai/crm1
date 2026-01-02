@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, Navigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import ObjectIndexLayout from '../../layouts/ObjectIndexLayout.jsx';
 import EmptyState from '../../components/EmptyState.jsx';
@@ -32,8 +32,27 @@ export default function CreateTicketPage({ subNav }) {
     [workspaceId, actorUserId]
   );
 
-  const contactsState = useAsync(() => listContacts(workspaceId), [workspaceId]);
-  const dealsState = useAsync(() => listDeals(workspaceId), [workspaceId]);
+  const permissions = Array.isArray(permsState.data?.permissions) ? permsState.data.permissions : [];
+  const allowed = permsState.status === 'success' && permissions.includes('tickets:create') && permissions.includes('contacts:read');
+
+  const contactsState = useAsync(
+    () => {
+      if (!workspaceId) return [];
+      if (!actorUserId.trim()) return [];
+      if (!allowed) return [];
+      return listContacts(workspaceId, { actorUserId: actorUserId.trim() });
+    },
+    [workspaceId, actorUserId, allowed]
+  );
+  const dealsState = useAsync(
+    () => {
+      if (!workspaceId) return [];
+      if (!actorUserId.trim()) return [];
+      if (!allowed) return [];
+      return listDeals(workspaceId, { actorUserId: actorUserId.trim() });
+    },
+    [workspaceId, actorUserId, allowed]
+  );
 
   const [subject, setSubject] = React.useState('');
   const [status, setStatus] = React.useState('OPEN');
@@ -54,17 +73,14 @@ export default function CreateTicketPage({ subNav }) {
   }
 
   if (permsState.status === 'error') {
-    return <Navigate to="/tickets" replace />;
+    return null;
   }
-
-  const permissions = Array.isArray(permsState.data?.permissions) ? permsState.data.permissions : [];
-  const allowed = permissions.includes('tickets:create') && permissions.includes('contacts:read');
   if (!allowed) {
-    return <Navigate to="/tickets" replace />;
+    return null;
   }
 
-  const contacts = contactsState.status === 'success' && Array.isArray(contactsState.data) ? contactsState.data : [];
-  const deals = dealsState.status === 'success' && Array.isArray(dealsState.data) ? dealsState.data : [];
+  const contacts = Array.isArray(contactsState.data) ? contactsState.data : [];
+  const deals = Array.isArray(dealsState.data) ? dealsState.data : [];
 
   const currentErrors = validate({ subject, primaryContactId });
   const canSubmit = Object.keys(currentErrors).length === 0 && !isSubmitting && actorUserId.trim();
@@ -78,7 +94,7 @@ export default function CreateTicketPage({ subNav }) {
 
       {contactsState.status === 'success' ? (
         <form
-          style={{ display: 'grid', gap: 12, maxWidth: 720 }}
+          className="ui-form ui-max-720"
           onSubmit={async (e) => {
             e.preventDefault();
             const nextErrors = validate({ subject, primaryContactId });
@@ -124,20 +140,20 @@ export default function CreateTicketPage({ subNav }) {
           <label>
             Subject
             <input
+              className="ui-input"
               value={subject}
               onChange={(e) => {
                 setSubject(e.target.value);
                 if (errors.subject) setErrors((prev) => ({ ...prev, subject: undefined }));
               }}
               maxLength={SUBJECT_MAX_LEN}
-              style={{ width: '100%' }}
             />
-            {errors.subject ? <div style={{ fontSize: 12 }}>{errors.subject}</div> : null}
+            {errors.subject ? <div className="ui-error">{errors.subject}</div> : null}
           </label>
 
           <label>
             Status
-            <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: '100%' }}>
+            <select className="ui-select" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="OPEN">OPEN</option>
               <option value="PENDING">PENDING</option>
               <option value="CLOSED">CLOSED</option>
@@ -146,7 +162,7 @@ export default function CreateTicketPage({ subNav }) {
 
           <label>
             Priority
-            <select value={priority} onChange={(e) => setPriority(e.target.value)} style={{ width: '100%' }}>
+            <select className="ui-select" value={priority} onChange={(e) => setPriority(e.target.value)}>
               <option value="LOW">LOW</option>
               <option value="MEDIUM">MEDIUM</option>
               <option value="HIGH">HIGH</option>
@@ -157,12 +173,12 @@ export default function CreateTicketPage({ subNav }) {
           <label>
             Primary Contact
             <select
+              className="ui-select"
               value={primaryContactId}
               onChange={(e) => {
                 setPrimaryContactId(e.target.value);
                 if (errors.primaryContactId) setErrors((prev) => ({ ...prev, primaryContactId: undefined }));
               }}
-              style={{ width: '100%' }}
             >
               <option value="" disabled>
                 Choose…
@@ -176,18 +192,18 @@ export default function CreateTicketPage({ subNav }) {
                 );
               })}
             </select>
-            {errors.primaryContactId ? <div style={{ fontSize: 12 }}>{errors.primaryContactId}</div> : null}
+            {errors.primaryContactId ? <div className="ui-error">{errors.primaryContactId}</div> : null}
           </label>
 
           <div>
-            <div style={{ fontSize: 12, marginBottom: 6 }}>Additional Contacts</div>
+            <div className="ui-text-xs ui-mb-2">Additional Contacts</div>
             {contacts
               .filter((c) => c.id !== primaryContactId)
               .map((c) => {
                 const label = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() || c.email || c.id;
                 const checked = additionalContactIds.includes(c.id);
                 return (
-                  <label key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <label key={c.id} className="ui-row">
                     <input
                       type="checkbox"
                       checked={checked}
@@ -202,12 +218,12 @@ export default function CreateTicketPage({ subNav }) {
                   </label>
                 );
               })}
-            {primaryContactId ? null : <div style={{ fontSize: 12 }}>Select a primary contact first.</div>}
+            {primaryContactId ? null : <div className="ui-text-xs">Select a primary contact first.</div>}
           </div>
 
           <label>
             Associated Deal (read-only select)
-            <select value={dealId} onChange={(e) => setDealId(e.target.value)} style={{ width: '100%' }}>
+            <select className="ui-select" value={dealId} onChange={(e) => setDealId(e.target.value)}>
               <option value="">None</option>
               {deals.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -215,12 +231,12 @@ export default function CreateTicketPage({ subNav }) {
                 </option>
               ))}
             </select>
-            <div style={{ fontSize: 12 }}>
+            <div className="ui-help">
               Selecting a deal validates it exists; it does not mutate the deal.
             </div>
           </label>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="ui-actions-between">
             <Link to="/tickets">Cancel</Link>
             <button type="submit" disabled={!canSubmit}>
               {isSubmitting ? 'Creating…' : 'Create ticket'}

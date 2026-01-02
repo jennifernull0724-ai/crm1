@@ -7,7 +7,7 @@ import { ModalProvider, ModalRoot, useModals } from './state/modals.jsx';
 import { SessionProvider, useSession } from './state/session.jsx';
 import { useAsync } from './hooks/useAsync.js';
 
-import { getWorkspace, listWorkspaces, listContacts, listCompanies, listDeals, listTickets } from './api/crm.js';
+import { getPermissions, listWorkspaces } from './api/crm.js';
 
 import AppLayout from './layouts/AppLayout.jsx';
 import PrimaryNavRail from './components/PrimaryNavRail.jsx';
@@ -24,6 +24,13 @@ import TicketsIndexPage from './pages/tickets/TicketsIndexPage.jsx';
 import TicketRecordPage from './pages/tickets/TicketRecordPage.jsx';
 import CreateTicketPage from './pages/tickets/CreateTicketPage.jsx';
 import ReportsPage from './pages/reports/ReportsPage.jsx';
+import CompanyReportsPage from './pages/reports/CompanyReportsPage.jsx';
+import Marketing from './pages/Marketing.jsx';
+import Pricing from './pages/Pricing.jsx';
+import Terms from './pages/Terms.jsx';
+import Privacy from './pages/Privacy.jsx';
+import Security from './pages/Security.jsx';
+import ContactSupport from './pages/ContactSupport.jsx';
 
 function Shell({ children }) {
   const { toasts, remove } = useToasts();
@@ -65,17 +72,17 @@ function WorkspaceGate() {
   }
 
   return (
-    <div className="page" style={{ maxWidth: 720 }}>
-      <h1 style={{ marginTop: 0 }}>Select workspace</h1>
-      <div style={{ display: 'grid', gap: 10 }}>
+    <div className="page ui-max-720">
+      <h1 className="ui-title">Select workspace</h1>
+      <div className="ui-form">
         <label>
           Actor User ID (required for writes)
-          <input value={actorUserId} onChange={(e) => setActorUserId(e.target.value)} style={{ width: '100%' }} />
+          <input className="ui-input" value={actorUserId} onChange={(e) => setActorUserId(e.target.value)} />
         </label>
 
         <label>
           Workspace
-          <select value={workspaceId ?? ''} onChange={(e) => setWorkspaceId(e.target.value)} style={{ width: '100%' }}>
+          <select className="ui-select" value={workspaceId ?? ''} onChange={(e) => setWorkspaceId(e.target.value)}>
             <option value="" disabled>
               Choose…
             </option>
@@ -94,30 +101,33 @@ function WorkspaceGate() {
 }
 
 function useAccess(workspaceId) {
+  const { actorUserId } = useSession();
   return useAsync(async () => {
     if (!workspaceId) return null;
-    await getWorkspace(workspaceId);
+    if (!actorUserId.trim()) {
+      return { permissions: [], contacts: false, companies: false, deals: false, tickets: false, reports: false, automation: false };
+    }
 
-    const results = await Promise.allSettled([
-      listContacts(workspaceId),
-      listCompanies(workspaceId),
-      listDeals(workspaceId),
-      listTickets(workspaceId)
-    ]);
+    const result = await getPermissions(workspaceId, { actorUserId: actorUserId.trim() });
+    const permissions = Array.isArray(result?.permissions) ? result.permissions : [];
 
-    const allowed = (r) => r.status === 'fulfilled';
+    const has = (p) => permissions.includes(p);
 
     return {
-      contacts: allowed(results[0]),
-      companies: allowed(results[1]),
-      deals: allowed(results[2]),
-      tickets: allowed(results[3])
+      permissions,
+      contacts: has('contacts:read'),
+      companies: has('companies:read'),
+      deals: has('deals:read'),
+      tickets: has('tickets:read'),
+      reports: has('reports:read'),
+      automation: has('automation:read')
     };
-  }, [workspaceId]);
+  }, [workspaceId, actorUserId]);
 }
 
 function Guarded({ allowed, access, children }) {
-  if (!allowed) return <FirstAllowedRedirect access={access} />;
+  void access;
+  if (!allowed) return null;
   return children;
 }
 
@@ -141,15 +151,15 @@ function ShellRoutes() {
   const workspacesState = useAsync(() => listWorkspaces(), []);
 
   const header = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-      <div style={{ fontWeight: 700 }}>crm1</div>
-      <div style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
+    <div className="ui-row-between">
+      <div className="timeline-strong">crm1</div>
+      <div className="ui-row">
         <label>
           Workspace
           <select
+            className="ui-select ui-w-360"
             value={workspaceId ?? ''}
             onChange={(e) => setWorkspaceId(e.target.value || null)}
-            style={{ width: 360 }}
           >
             <option value="" disabled>
               Choose…
@@ -162,8 +172,8 @@ function ShellRoutes() {
           </select>
         </label>
         <label>
-          Actor
-          <input value={actorUserId} onChange={(e) => setActorUserId(e.target.value)} style={{ width: 180 }} />
+          Actor User ID (required for reads and writes)
+          <input className="ui-input ui-w-180" value={actorUserId} onChange={(e) => setActorUserId(e.target.value)} />
         </label>
       </div>
     </div>
@@ -188,7 +198,7 @@ function ShellRoutes() {
     { to: '/companies', label: 'Companies', icon: 'O', visible: access.companies },
     { to: '/deals', label: 'Deals', icon: 'D', visible: access.deals },
     { to: '/tickets', label: 'Tickets', icon: 'T', visible: access.tickets },
-    { to: '/reports', label: 'Reports', icon: 'R', visible: access.contacts || access.deals || access.tickets }
+    { to: '/reports', label: 'Reports', icon: 'R', visible: access.reports }
   ];
 
   const subNav = <ObjectSubNav items={navItems} />;
@@ -259,8 +269,17 @@ function ShellRoutes() {
         <Route
           path="/reports"
           element={
-            <Guarded allowed={access.contacts || access.deals || access.tickets} access={access}>
+            <Guarded allowed={access.reports} access={access}>
               <ReportsPage subNav={subNav} />
+            </Guarded>
+          }
+        />
+
+        <Route
+          path="/reports/companies"
+          element={
+            <Guarded allowed={access.reports} access={access}>
+              <CompanyReportsPage subNav={subNav} />
             </Guarded>
           }
         />
@@ -304,7 +323,15 @@ export default function App() {
       <ModalProvider>
         <SessionProvider>
           <Shell>
-            <ShellRoutes />
+            <Routes>
+              <Route path="/" element={<Marketing />} />
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/security" element={<Security />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/contact-support" element={<ContactSupport />} />
+              <Route path="/*" element={<ShellRoutes />} />
+            </Routes>
           </Shell>
         </SessionProvider>
       </ModalProvider>

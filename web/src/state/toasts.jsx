@@ -34,19 +34,14 @@ export function ToastViewport({ toasts, onDismiss }) {
   if (!toasts?.length) return null;
 
   return (
-    <div style={{ position: 'fixed', right: 12, bottom: 12, display: 'grid', gap: 8, zIndex: 50 }}>
+    <div className="toast-viewport">
       {toasts.map((t) => (
         <div
           key={t.id}
-          style={{
-            border: '1px solid currentColor',
-            padding: 10,
-            borderRadius: 8,
-            minWidth: 240
-          }}
+          className="toast"
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-            <div style={{ fontSize: 13 }}>{t.message}</div>
+          <div className="toast-row">
+            <div className="toast-message">{t.message}</div>
             <button onClick={() => onDismiss(t.id)} aria-label="Dismiss toast">
               ×
             </button>

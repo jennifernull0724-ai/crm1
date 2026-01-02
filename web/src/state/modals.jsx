@@ -33,26 +33,14 @@ export function ModalRoot({ modal, onClose }) {
     <div
       role="dialog"
       aria-modal="true"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        display: 'grid',
-        placeItems: 'center',
-        zIndex: 60
-      }}
+      className="modal-backdrop"
       onClick={onClose}
     >
       <div
-        style={{
-          border: '1px solid currentColor',
-          padding: 16,
-          borderRadius: 10,
-          maxWidth: 720,
-          width: 'min(720px, calc(100vw - 24px))'
-        }}
+        className="modal-shell"
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="modal-close-row">
           <button onClick={onClose} aria-label="Close modal">
             Close
           </button>

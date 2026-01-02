@@ -8,8 +8,8 @@ import { useAsync } from '../../hooks/useAsync.js';
 import { listCompanies } from '../../api/crm.js';
 
 export default function CompaniesIndexPage({ subNav }) {
-  const { workspaceId } = useSession();
-  const state = useAsync(() => listCompanies(workspaceId), [workspaceId]);
+  const { workspaceId, actorUserId } = useSession();
+  const state = useAsync(() => listCompanies(workspaceId, { actorUserId: actorUserId.trim() }), [workspaceId, actorUserId]);
 
   return (
     <ObjectIndexLayout title="Companies" subNav={subNav}>
@@ -19,13 +19,13 @@ export default function CompaniesIndexPage({ subNav }) {
         <EmptyState title="No companies" description="Create a company via API first." />
       ) : null}
       {state.status === 'success' && Array.isArray(state.data) && state.data.length > 0 ? (
-        <div style={{ display: 'grid', gap: 8 }}>
+        <div className="ui-stack-sm">
           {state.data.map((c) => (
-            <div key={c.id} style={{ border: '1px solid currentColor', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontWeight: 600 }}>
+            <div key={c.id} className="card">
+              <div className="timeline-strong">
                 <Link to={`/companies/${c.id}`}>{c.name}</Link>
               </div>
-              <div style={{ fontSize: 12 }}>{c.domain ?? ''}</div>
+              <div className="ui-text-xs">{c.domain ?? ''}</div>
             </div>
           ))}
         </div>

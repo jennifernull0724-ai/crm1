@@ -20,17 +20,17 @@ export default function LogActivityPanel({ onSubmit, onCancel }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10 }}>
-      <h2 style={{ marginTop: 0 }}>Log Activity</h2>
+    <form onSubmit={handleSubmit} className="ui-form">
+      <h2 className="ui-h2">Log Activity</h2>
 
       <label>
         Note
-        <textarea value={note} onChange={(e) => setNote(e.target.value)} style={{ width: '100%', minHeight: 120 }} />
+        <textarea className="ui-textarea" value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
 
       {error ? <div className="empty">{error}</div> : null}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+      <div className="ui-actions">
         <button type="button" onClick={onCancel} disabled={submitting}>
           Cancel
         </button>

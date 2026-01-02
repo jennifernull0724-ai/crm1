@@ -11,9 +11,12 @@ import { getTicket } from '../../api/crm.js';
 
 export default function TicketRecordPage({ subNav }) {
   const { ticketId } = useParams();
-  const { workspaceId } = useSession();
+  const { workspaceId, actorUserId } = useSession();
 
-  const state = useAsync(() => getTicket(workspaceId, ticketId), [workspaceId, ticketId]);
+  const state = useAsync(
+    () => getTicket(workspaceId, ticketId, { actorUserId: actorUserId.trim() }),
+    [workspaceId, ticketId, actorUserId]
+  );
 
   const title = state.status === 'success' ? state.data.subject : 'Ticket';
 
@@ -29,18 +32,18 @@ export default function TicketRecordPage({ subNav }) {
       {state.status === 'loading' || state.status === 'idle' ? <div>Loading…</div> : null}
       {state.status === 'error' ? <EmptyState title="Failed to load ticket" description={state.error.message} /> : null}
       {state.status === 'success' ? (
-        <dl style={{ margin: 0, display: 'grid', gap: 6 }}>
+        <dl className="ui-kv">
           <div>
-            <dt style={{ fontSize: 12 }}>Status</dt>
-            <dd style={{ margin: 0 }}>{state.data.status}</dd>
+            <dt>Status</dt>
+            <dd>{state.data.status}</dd>
           </div>
           <div>
-            <dt style={{ fontSize: 12 }}>Priority</dt>
-            <dd style={{ margin: 0 }}>{state.data.priority}</dd>
+            <dt>Priority</dt>
+            <dd>{state.data.priority}</dd>
           </div>
           <div>
-            <dt style={{ fontSize: 12 }}>Created</dt>
-            <dd style={{ margin: 0 }}>{new Date(state.data.createdAt).toLocaleString()}</dd>
+            <dt>Created</dt>
+            <dd>{new Date(state.data.createdAt).toLocaleString()}</dd>
           </div>
         </dl>
       ) : null}

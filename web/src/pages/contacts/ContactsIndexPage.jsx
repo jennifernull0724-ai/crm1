@@ -8,8 +8,8 @@ import { useAsync } from '../../hooks/useAsync.js';
 import { listContacts } from '../../api/crm.js';
 
 export default function ContactsIndexPage({ subNav }) {
-  const { workspaceId } = useSession();
-  const state = useAsync(() => listContacts(workspaceId), [workspaceId]);
+  const { workspaceId, actorUserId } = useSession();
+  const state = useAsync(() => listContacts(workspaceId, { actorUserId: actorUserId.trim() }), [workspaceId, actorUserId]);
 
   return (
     <ObjectIndexLayout title="Contacts" subNav={subNav}>
@@ -19,17 +19,17 @@ export default function ContactsIndexPage({ subNav }) {
         <EmptyState title="No contacts" description="Create a contact via API first." />
       ) : null}
       {state.status === 'success' && Array.isArray(state.data) && state.data.length > 0 ? (
-        <div style={{ display: 'grid', gap: 8 }}>
+        <div className="ui-stack-sm">
           {state.data.map((c) => (
-            <div key={c.id} style={{ border: '1px solid currentColor', borderRadius: 10, padding: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <div key={c.id} className="card">
+              <div className="ui-row-between">
                 <div>
-                  <div style={{ fontWeight: 600 }}>
+                  <div className="timeline-strong">
                     <Link to={`/contacts/${c.id}`}>{c.firstName ?? ''} {c.lastName ?? ''}</Link>
                   </div>
-                  <div style={{ fontSize: 12 }}>{c.email ?? ''}</div>
+                  <div className="ui-text-xs">{c.email ?? ''}</div>
                 </div>
-                <div style={{ fontSize: 12 }}>{c.archivedAt ? 'archived' : ''}</div>
+                <div className="ui-text-xs">{c.archivedAt ? 'archived' : ''}</div>
               </div>
             </div>
           ))}

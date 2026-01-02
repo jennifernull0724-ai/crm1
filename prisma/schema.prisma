@@ -368,12 +368,17 @@ model Company {
   workspaceId String
 
   name      String
+  legalName String?
   domain    String?
   industry  String?
   sizeRange String?
   website   String?
 
+  country String?
+  region  String?
+
   createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   archivedAt DateTime?
 
   workspace     Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -390,6 +395,7 @@ model ContactCompanyAssociation {
   contactId   String
   companyId   String
   role        ContactCompanyRole
+  isPrimary   Boolean           @default(false)
 
   createdAt  DateTime  @default(now())
   archivedAt DateTime?

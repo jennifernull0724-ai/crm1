@@ -20,3 +20,5 @@ prisma/.env
 # Logs
 logs/
 *.log
+.vercel
+.env*.local

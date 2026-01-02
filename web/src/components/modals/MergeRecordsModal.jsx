@@ -20,17 +20,17 @@ export default function MergeRecordsModal({ onSubmit, onCancel }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10 }}>
-      <h2 style={{ marginTop: 0 }}>Merge Records</h2>
+    <form onSubmit={handleSubmit} className="ui-form">
+      <h2 className="ui-h2">Merge Records</h2>
 
       <label>
         Contact ID to merge into this record
-        <input value={mergeContactId} onChange={(e) => setMergeContactId(e.target.value)} style={{ width: '100%' }} />
+        <input className="ui-input" value={mergeContactId} onChange={(e) => setMergeContactId(e.target.value)} />
       </label>
 
       {error ? <div className="empty">{error}</div> : null}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+      <div className="ui-actions">
         <button type="button" onClick={onCancel} disabled={submitting}>
           Cancel
         </button>
