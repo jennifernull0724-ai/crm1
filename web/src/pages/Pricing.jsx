@@ -6,7 +6,7 @@ const PLANS = [
     id: 'growth',
     name: 'Growth',
     price: 2999,
-    priceId: 'price_growth_yearly',
+    priceId: 'price_1Sj2ojAqLLDC50j4uAJmpYl7',
     seats: 'Base seats included',
     cta: 'Purchase Growth',
     action: 'checkout'
@@ -15,8 +15,8 @@ const PLANS = [
     id: 'pro',
     name: 'Pro',
     price: 4999,
-    priceId: 'price_pro_yearly',
-    seatPriceId: 'price_pro_seat_yearly',
+    priceId: 'price_1Sj2pEAqLLDC50j4AeBP4azi',
+    seatPriceId: 'price_1SjdLiAqLLDC50j4JhLgf3Vv',
     seatPrice: 250,
     seats: 'Base + additional seats',
     cta: 'Purchase Pro',
@@ -26,7 +26,7 @@ const PLANS = [
     id: 'enterprise',
     name: 'Enterprise',
     price: 6999,
-    priceId: 'price_enterprise_yearly',
+    priceId: 'price_1ShISRAqLLDC50j4iguEmnTB',
     seats: 'Contract negotiated',
     cta: 'Approval required',
     action: 'disabled'
