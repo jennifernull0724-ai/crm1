@@ -1860,3 +1860,183 @@ a {
     grid-template-columns: 1fr 1fr 1fr;
   }
 }
+
+/* Login page styles */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-secondary);
+  padding: var(--space-4);
+}
+
+.login-container {
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-card {
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  box-shadow: 0 2px 8px rgba(11, 18, 32, 0.06);
+}
+
+.login-title {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+.login-subtitle {
+  margin: 0 0 var(--space-6) 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.login-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.login-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.login-input {
+  width: 100%;
+  padding: var(--space-3);
+  font-size: var(--font-size-md);
+  font-family: var(--font-family-ui);
+  color: var(--color-text-primary);
+  background: var(--color-surface-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-input:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+
+.login-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.login-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.login-button {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-family-ui);
+  color: #ffffff;
+  background: var(--color-accent-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.05s ease;
+}
+
+.login-button:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.login-button:active:not(:disabled) {
+  background: var(--color-accent-pressed);
+  transform: translateY(1px);
+}
+
+.login-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-footer {
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.login-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  font-family: var(--font-family-ui);
+  color: var(--color-accent-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.login-link:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.login-alert {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  margin-bottom: var(--space-4);
+}
+
+.login-alert-error {
+  background: color-mix(in srgb, var(--color-status-danger) 8%, var(--color-surface-primary));
+  border: 1px solid color-mix(in srgb, var(--color-status-danger) 20%, var(--color-surface-primary));
+  color: var(--color-status-danger);
+}
+
+.login-alert-success {
+  background: color-mix(in srgb, var(--color-status-success) 8%, var(--color-surface-primary));
+  border: 1px solid color-mix(in srgb, var(--color-status-success) 20%, var(--color-surface-primary));
+  color: var(--color-status-success);
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: var(--space-6);
+  }
+  
+  .login-title {
+    font-size: var(--font-size-xl);
+  }
+}
+
+.pr-error-alert {
+  background: color-mix(in srgb, var(--color-status-danger) 8%, var(--color-surface-primary));
+  border: 1px solid color-mix(in srgb, var(--color-status-danger) 20%, var(--color-surface-primary));
+  color: var(--color-status-danger);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-6);
+  font-size: var(--font-size-md);
+}

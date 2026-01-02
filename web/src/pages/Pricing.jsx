@@ -44,7 +44,7 @@ function PricingHeader() {
   );
 }
 
-function PricingCard({ plan, seatCount, onSeatChange, onPurchase }) {
+function PricingCard({ plan, seatCount, onSeatChange, onPurchase, loading }) {
   const totalPrice = plan.id === 'pro' && seatCount > 0
     ? plan.price + (seatCount * plan.seatPrice)
     : plan.price;
@@ -69,6 +69,7 @@ function PricingCard({ plan, seatCount, onSeatChange, onPurchase }) {
             max="100"
             value={seatCount}
             onChange={(e) => onSeatChange(parseInt(e.target.value) || 0)}
+            disabled={loading}
           />
           <div className="pr-seat-note">${plan.seatPrice} / seat / year</div>
         </div>
@@ -77,15 +78,15 @@ function PricingCard({ plan, seatCount, onSeatChange, onPurchase }) {
       <button 
         onClick={handleClick} 
         className="pr-btn"
-        disabled={plan.action === 'disabled'}
+        disabled={loading}
       >
-        {plan.cta}
+        {loading ? 'Processing...' : plan.cta}
       </button>
     </div>
   );
 }
 
-function PricingCards({ onPurchase }) {
+function PricingCards({ onPurchase, loading }) {
   const [proSeats, setProSeats] = useState(0);
 
   return (
@@ -99,6 +100,7 @@ function PricingCards({ onPurchase }) {
               seatCount={plan.id === 'pro' ? proSeats : 0}
               onSeatChange={plan.id === 'pro' ? setProSeats : null}
               onPurchase={onPurchase}
+              loading={loading}
             />
           ))}
         </div>
@@ -203,22 +205,49 @@ async function createCheckoutSession(priceId, seatPriceId, seatCount) {
   });
 
   if (!response.ok) {
-    throw new Error('Failed to create checkout session');
+    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(errorData.error || 'Failed to create checkout session');
   }
 
   const { sessionId } = await response.json();
   
-  const stripe = window.Stripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
-  await stripe.redirectToCheckout({ sessionId });
+  if (!sessionId) {
+    throw new Error('No session ID returned from server');
+  }
+
+  // Check if Stripe.js is loaded
+  if (!window.Stripe) {
+    throw new Error('Stripe.js not loaded. Please refresh the page and try again.');
+  }
+
+  const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+  if (!stripeKey) {
+    throw new Error('Stripe publishable key not configured');
+  }
+
+  const stripe = window.Stripe(stripeKey);
+  const result = await stripe.redirectToCheckout({ sessionId });
+  
+  if (result.error) {
+    throw new Error(result.error.message);
+  }
 }
 
 export default function Pricing() {
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
   const handlePurchase = async (priceId, seatPriceId, seatCount) => {
+    setError('');
+    setLoading(true);
+    
     try {
       await createCheckoutSession(priceId, seatPriceId, seatCount);
     } catch (error) {
       console.error('Checkout error:', error);
-      alert('Failed to start checkout. Please try again.');
+      setError(error.message || 'Failed to start checkout. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -226,7 +255,14 @@ export default function Pricing() {
     <PublicLayout>
       <div className="pr">
         <PricingHeader />
-        <PricingCards onPurchase={handlePurchase} />
+        {error && (
+          <div className="pr-container">
+            <div className="pr-error-alert">
+              <strong>Error:</strong> {error}
+            </div>
+          </div>
+        )}
+        <PricingCards onPurchase={handlePurchase} loading={loading} />
         <ComparisonTable />
         <BillingDisclosure />
       </div>
