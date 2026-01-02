@@ -118,7 +118,7 @@ export default function LandingPage() {
           </nav>
 
           <div className="lp-header-ctas">
-            <ButtonLink href="#request" variant="primary">
+            <ButtonLink href="/signup" variant="primary">
               {primaryCtaLabel}
             </ButtonLink>
           </div>
@@ -135,7 +135,7 @@ export default function LandingPage() {
                 CRM, estimating, dispatch, and compliance with enforced workflows and audit-ready records—built for construction, railroad, and environmental operations.
               </p>
               <div className="lp-hero-ctas">
-                <ButtonLink href="#request" variant="primary">
+                <ButtonLink href="/signup" variant="primary">
                   {primaryCtaLabel}
                 </ButtonLink>
                 <TextLink href="#industries">See industries</TextLink>

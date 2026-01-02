@@ -32,6 +32,7 @@ import Privacy from './pages/Privacy.jsx';
 import Security from './pages/Security.jsx';
 import ContactSupport from './pages/ContactSupport.jsx';
 import Login from './pages/Login.jsx';
+import SignUp from './pages/SignUp.jsx';
 
 function Shell({ children }) {
   const { toasts, remove } = useToasts();
@@ -326,6 +327,7 @@ export default function App() {
           <Shell>
             <Routes>
               <Route path="/" element={<Marketing />} />
+              <Route path="/signup" element={<SignUp />} />
               <Route path="/login" element={<Login />} />
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/security" element={<Security />} />

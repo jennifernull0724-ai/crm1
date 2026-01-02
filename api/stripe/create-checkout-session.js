@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { lineItems, allowCoupons = true, promoCode } = req.body;
+    const { lineItems, allowCoupons = true, promoCode, userEmail } = req.body;
 
     if (!lineItems || !Array.isArray(lineItems) || lineItems.length === 0) {
       return res.status(400).json({ error: 'Invalid line items' });
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
       payment_method_types: ['card'],
       line_items: lineItems,
       mode: 'subscription',
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:5173'}/success?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:5173'}/login?checkout=success`,
       cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:5173'}/pricing`,
       allow_promotion_codes: allowCoupons,
       billing_address_collection: 'required',
@@ -26,6 +26,12 @@ export default async function handler(req, res) {
         enabled: true,
       },
     };
+
+    // Add customer email if provided
+    if (userEmail) {
+      sessionConfig.customer_email = userEmail;
+      sessionConfig.client_reference_id = userEmail;
+    }
 
     // If a promo code is provided, apply it directly (instead of allowing user input)
     if (promoCode && promoCode.trim()) {

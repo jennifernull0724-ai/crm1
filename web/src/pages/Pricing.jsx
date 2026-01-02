@@ -209,11 +209,16 @@ async function createCheckoutSession(priceId, seatPriceId, seatCount, promoCode)
     lineItems.push({ price: seatPriceId, quantity: seatCount });
   }
 
+  // Get pending user email from signup flow
+  const pendingUserStr = sessionStorage.getItem('pendingUser');
+  const userEmail = pendingUserStr ? JSON.parse(pendingUserStr).email : null;
+
   const body = {
     priceId,
     seatCount,
     allowCoupons: true,
-    lineItems
+    lineItems,
+    userEmail
   };
 
   if (promoCode && promoCode.trim()) {
