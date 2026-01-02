@@ -92,7 +92,7 @@ function PricingCards({ onPurchase }) {
     <section className="pr-section">
       <div className="pr-container">
         <div className="pr-grid-3">
-          {PLANS.map((plan) => (4
+          {PLANS.map((plan) => (
             <PricingCard
               key={plan.id}
               plan={plan}

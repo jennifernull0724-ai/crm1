@@ -3,6 +3,14 @@ import heroImageUrl from '../assets/hero-atlas.webp';
 
 const primaryCtaLabel = 'Request access';
 
+const trustSignals = [
+  'Built for regulated industries',
+  'Audit-defensible by design',
+  'Used by operators, not marketers',
+  'Contacts → Dispatch continuity',
+  'Zero speculative features',
+];
+
 function Icon({ name }) {
   const common = {
     width: 18,
@@ -95,14 +103,14 @@ export default function LandingPage() {
       {/* Global Header */}
       <header className="lp-header" aria-label="Global">
         <div className="lp-container lp-header-inner">
-          <a className="lp-brand" href="/" aria-label="crm1 home">
-            crm1
+          <a className="lp-brand" href="/" aria-label="T-REX AI OS home">
+            T-REX AI OS
           </a>
 
           <nav className="lp-nav" aria-label="Primary">
-            <a className="lp-nav-link" href="#capabilities">What you get</a>
-            <a className="lp-nav-link" href="#pricing">
-              Pricing
+            <a className="lp-nav-link" href="#industries">Industries</a>
+            <a className="lp-nav-link" href="#capabilities">
+              Coverage
             </a>
             <a className="lp-nav-link" href="#security">
               Trust
@@ -122,15 +130,15 @@ export default function LandingPage() {
         <section className="lp-hero" aria-label="Hero">
           <div className="lp-container lp-hero-grid">
             <div className="lp-hero-copy">
-              <h1 className="lp-h1">Customer context your team can rely on.</h1>
+              <h1 className="lp-h1">Operational control for regulated field teams.</h1>
               <p className="lp-lede">
-                For sales and operations teams who need consistent customer information across handoffs—without scattered tools and guesswork.
+                CRM, estimating, dispatch, and compliance with enforced workflows and audit-ready records—built for construction, railroad, and environmental operations.
               </p>
               <div className="lp-hero-ctas">
                 <ButtonLink href="#request" variant="primary">
                   {primaryCtaLabel}
                 </ButtonLink>
-                <TextLink href="#pricing">See pricing</TextLink>
+                <TextLink href="#industries">See industries</TextLink>
               </div>
             </div>
 
@@ -149,33 +157,30 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Problem → Outcome */}
-        <section className="lp-section" aria-label="Problem and outcome">
+        {/* Industries */}
+        <section className="lp-section" id="industries" aria-label="Industries">
           <div className="lp-container">
-            <h2 className="lp-h2">From scattered details to consistent execution.</h2>
+            <h2 className="lp-h2">Built for regulated field operations.</h2>
             <div className="lp-grid-3">
               <div className="lp-card">
-                <h3 className="lp-h3">Problem</h3>
-                <ul className="lp-bullets">
-                  <li>Customer information is spread across tools and inboxes.</li>
-                  <li>Handoffs lose details and slow down follow-through.</li>
-                  <li>Teams disagree on status and next steps.</li>
-                  <li>Process breaks down as volume increases.</li>
-                </ul>
-              </div>
-              <div className="lp-card">
-                <h3 className="lp-h3">Outcome</h3>
-                <ul className="lp-bullets">
-                  <li>A consistent customer record shared across teams.</li>
-                  <li>Smoother handoffs with fewer missed details.</li>
-                  <li>Clearer coordination and faster decisions.</li>
-                  <li>More predictable execution as you grow.</li>
-                </ul>
-              </div>
-              <div className="lp-card">
-                <h3 className="lp-h3">Result</h3>
+                <h3 className="lp-h3">Construction</h3>
+                <p className="lp-body lp-body-tight" style={{marginBottom: '0.75rem', fontWeight: 500}}>Fragmented workflows, lost documentation, poor visibility.</p>
                 <p className="lp-body lp-body-tight">
-                  crm1 helps teams stay aligned on what matters: the customer story, the current status, and what needs to happen next.
+                  T-REX ties CRM, estimating, and dispatch to the same record so every handoff is documented and auditable.
+                </p>
+              </div>
+              <div className="lp-card">
+                <h3 className="lp-h3">Railroad</h3>
+                <p className="lp-body lp-body-tight" style={{marginBottom: '0.75rem', fontWeight: 500}}>Authority coordination, compliance pressure, and operational handoffs.</p>
+                <p className="lp-body lp-body-tight">
+                  Subdivision context, QR verification, and immutable logs keep inspectors, contractors, and owners aligned.
+                </p>
+              </div>
+              <div className="lp-card">
+                <h3 className="lp-h3">Environmental</h3>
+                <p className="lp-body lp-body-tight" style={{marginBottom: '0.75rem', fontWeight: 500}}>Documentation overload, audit exposure, and reporting burden.</p>
+                <p className="lp-body lp-body-tight">
+                  Permit-driven workflows and preserved evidence make regulators see one version of the truth.
                 </p>
               </div>
             </div>
@@ -183,31 +188,31 @@ export default function LandingPage() {
         </section>
 
         {/* What You Get (Capabilities, Not Screens) */}
-        <section className="lp-section lp-section-alt" id="capabilities" aria-label="What you get">
+        <section className="lp-section lp-section-alt" id="capabilities" aria-label="Operational coverage">
           <div className="lp-container">
-            <h2 className="lp-h2">What you get</h2>
-            <p className="lp-body">Core capabilities that support consistent customer work—without relying on tribal knowledge.</p>
+            <h2 className="lp-h2">Operational coverage</h2>
+            <p className="lp-body">CRM, estimating, dispatch, and compliance on one enforced system—no spreadsheet workarounds.</p>
 
             <div className="lp-grid-4">
               <FeatureCard
                 icon="link"
-                title="Customer records"
-                description="Keep key customer information organized so teams work from the same foundation."
+                title="CRM"
+                description="Contacts, companies, and deals stay on one record. Ownership, notes, and documents remain accountable."
               />
               <FeatureCard
                 icon="grid"
-                title="Revenue operations"
-                description="Support a consistent sales process so planning and coordination improve over time."
-              />
-              <FeatureCard
-                icon="shield"
-                title="Reliability"
-                description="Prioritize consistency and predictable behavior so teams can trust the information they share."
+                title="Estimating"
+                description="Controlled presets and revisions document every change. Approvals, signatures, and PDFs stay versioned."
               />
               <FeatureCard
                 icon="spark"
-                title="Reporting foundations"
-                description="Standardize what gets measured so teams can align on outcomes and act with confidence."
+                title="Dispatch"
+                description="Work orders inherit context from CRM and estimating. Crews, equipment, and execution logs stay traceable."
+              />
+              <FeatureCard
+                icon="shield"
+                title="Compliance"
+                description="Certifications, QR verification, and snapshots are immutable. Audit history mirrors the field reality in one place."
               />
             </div>
           </div>
@@ -216,29 +221,30 @@ export default function LandingPage() {
         {/* Trust / Credibility */}
         <section className="lp-proof" id="security" aria-label="Trust">
           <div className="lp-container lp-proof-inner">
-            <h2 className="lp-h2">Built with reliability in mind.</h2>
-            <p className="lp-body">Clear boundaries and predictable behavior, designed for teams who care about accuracy and accountability.</p>
+            <h2 className="lp-h2">Built for audit-defensible operations.</h2>
+            <p className="lp-body">Server-enforced workflows and immutable records designed for regulated industries.</p>
             <LogoRow />
             <div className="lp-badges" aria-label="Credibility">
-              <div className="lp-badge">Security-minded approach</div>
-              <div className="lp-badge">Consistent data foundations</div>
-              <div className="lp-badge">Operational reliability</div>
+              {trustSignals.map((signal) => (
+                <div key={signal} className="lp-badge">{signal}</div>
+              ))}
             </div>
           </div>
         </section>
 
-        {/* Social Proof */}
-        <section className="lp-section lp-section-alt" aria-label="Testimonials">
+        {/* Workflow Flow */}
+        <section className="lp-section lp-section-alt" aria-label="Workflow">
           <div className="lp-container">
-            <h2 className="lp-h2">What teams say after switching.</h2>
+            <h2 className="lp-h2">Contact → Dispatch → Compliance</h2>
+            <p className="lp-body">Every step documented on one record, from first contact to field execution and audit proof.</p>
             <div className="lp-testimonials">
               <div className="lp-quote">
-                <p className="lp-quote-text">“We get the full customer story without switching tools.”</p>
-                <div className="lp-quote-meta">Avery L. · Ops · Northwind</div>
+                <p className="lp-quote-text">"Finally, a system that doesn't let field notes disappear into someone's email."</p>
+                <div className="lp-quote-meta">Project Manager · Regional Railroad Contractor</div>
               </div>
               <div className="lp-quote">
-                <p className="lp-quote-text">“Handoffs feel calmer because the timeline is always there.”</p>
-                <div className="lp-quote-meta">Jordan P. · Support · Contoso</div>
+                <p className="lp-quote-text">"Auditors see the same timeline we do. No more scrambling for documentation."</p>
+                <div className="lp-quote-meta">Compliance Director · Environmental Services</div>
               </div>
             </div>
           </div>
@@ -247,30 +253,30 @@ export default function LandingPage() {
         {/* Pricing Section */}
         <section className="lp-pricing" id="pricing" aria-label="Pricing">
           <div className="lp-container">
-            <h2 className="lp-h2">Pricing for teams at different stages.</h2>
-            <p className="lp-body">Choose a plan that matches where you are today.</p>
+            <h2 className="lp-h2">Deployment options for your operation.</h2>
+            <p className="lp-body">Choose the configuration that matches your compliance and scale requirements.</p>
 
             <div className="lp-grid-3 lp-pricing-grid">
               <div className="lp-pricing-card">
-                <div className="lp-plan">Starter</div>
-                <div className="lp-plan-sub">For small teams establishing a customer system of record</div>
+                <div className="lp-plan">Field Team</div>
+                <div className="lp-plan-sub">For crews establishing audit-ready workflows from contact to dispatch</div>
                 <ButtonLink href="#request" variant="secondary">
                   Request access
                 </ButtonLink>
               </div>
 
               <div className="lp-pricing-card lp-pricing-card-featured" aria-label="Featured plan">
-                <div className="lp-plan">Team</div>
-                <div className="lp-plan-sub">For growing teams standardizing process across functions</div>
+                <div className="lp-plan">Operations</div>
+                <div className="lp-plan-sub">For regional teams coordinating CRM, estimating, and compliance</div>
                 <ButtonLink href="#request" variant="primary">
                   {primaryCtaLabel}
                 </ButtonLink>
               </div>
 
               <div className="lp-pricing-card">
-                <div className="lp-plan">Scale</div>
-                <div className="lp-plan-sub">For larger teams that need a tailored rollout</div>
-                <ButtonLink href="mailto:sales@crm1.local" variant="secondary">
+                <div className="lp-plan">Enterprise</div>
+                <div className="lp-plan-sub">For multi-site operations requiring custom enforcement and integrations</div>
+                <ButtonLink href="mailto:sales@trexaios.com" variant="secondary">
                   Contact sales
                 </ButtonLink>
               </div>
@@ -282,11 +288,11 @@ export default function LandingPage() {
         <section className="lp-cta" aria-label="Final call to action" id="request">
           <div className="lp-container lp-cta-inner">
             <div>
-              <h2 className="lp-h2">Evaluate it with your team.</h2>
-              <p className="lp-body">Request access for a straightforward review. We’ll help you confirm fit and next steps.</p>
+              <h2 className="lp-h2">Deploy with your operations team.</h2>
+              <p className="lp-body">Request access to evaluate T-REX with your field workflows. We'll help you confirm compliance fit and rollout approach.</p>
             </div>
             <div className="lp-cta-actions">
-              <ButtonLink href="mailto:sales@crm1.local" variant="primary">
+              <ButtonLink href="mailto:hello@trexaios.com" variant="primary">
                 {primaryCtaLabel}
               </ButtonLink>
             </div>
@@ -297,25 +303,25 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="lp-footer" aria-label="Footer">
         <div className="lp-container lp-footer-inner">
-          <div className="lp-footer-brand">crm1</div>
+          <div className="lp-footer-brand">T-REX AI OS</div>
 
           <div className="lp-footer-cols" role="navigation" aria-label="Footer links">
             <div className="lp-footer-col">
-              <div className="lp-footer-title">Product</div>
-              <a href="#features">Features</a>
-              <a href="#pricing">Pricing</a>
-              <a href="#security">Security</a>
+              <div className="lp-footer-title">System</div>
+              <a href="#industries">Industries</a>
+              <a href="#capabilities">Coverage</a>
+              <a href="#security">Trust</a>
             </div>
             <div className="lp-footer-col">
               <div className="lp-footer-title">Company</div>
-              <a href="#request">Request</a>
-              <a href="mailto:hello@crm1.local">Contact</a>
+              <a href="#request">Request access</a>
+              <a href="mailto:hello@trexaios.com">Contact</a>
             </div>
             <div className="lp-footer-col">
               <div className="lp-footer-title">Resources</div>
-              <a href="#features">Overview</a>
-              <a href="#pricing">Plans</a>
-              <a href="#request">Contact sales</a>
+              <a href="#industries">Overview</a>
+              <a href="#pricing">Deployment</a>
+              <a href="mailto:hello@trexaios.com">Contact sales</a>
             </div>
             <div className="lp-footer-col">
               <div className="lp-footer-title">Legal</div>
@@ -332,8 +338,8 @@ export default function LandingPage() {
           </div>
 
           <div className="lp-footer-bottom">
-            <div>© {new Date().getFullYear()} crm1</div>
-            <a className="lp-skip" href="#features">
+            <div>© {new Date().getFullYear()} T-REX AI OS</div>
+            <a className="lp-skip" href="#industries">
               Skip to content
             </a>
           </div>
