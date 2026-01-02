@@ -28,8 +28,8 @@ const PLANS = [
     price: 6999,
     priceId: 'price_1ShISRAqLLDC50j4iguEmnTB',
     seats: 'Contract negotiated',
-    cta: 'Approval required',
-    action: 'disabled'
+    cta: 'Purchase Enterprise',
+    action: 'checkout'
   }
 ];
 
@@ -69,7 +69,6 @@ function PricingCard({ plan, seatCount, onSeatChange, onPurchase }) {
             max="100"
             value={seatCount}
             onChange={(e) => onSeatChange(parseInt(e.target.value) || 0)}
-            className="pr-seat-input"
           />
           <div className="pr-seat-note">${plan.seatPrice} / seat / year</div>
         </div>
@@ -93,7 +92,7 @@ function PricingCards({ onPurchase }) {
     <section className="pr-section">
       <div className="pr-container">
         <div className="pr-grid-3">
-          {PLANS.map((plan) => (
+          {PLANS.map((plan) => (4
             <PricingCard
               key={plan.id}
               plan={plan}
@@ -118,7 +117,8 @@ function ComparisonTable() {
             <thead>
               <tr>
                 <th></th>
-                <th>Growth</th>
+
+                <th>Starter</th>
                 <th>Pro</th>
                 <th>Enterprise</th>
               </tr>
