@@ -44,13 +44,13 @@ function PricingHeader() {
   );
 }
 
-function PricingCard({ plan, seatCount, onSeatChange, onPurchase, loading }) {
+function PricingCard({ plan, seatCount, onSeatChange, promoCode, onPromoChange, onPurchase, loading }) {
   const totalPrice = plan.id === 'pro' && seatCount > 0
     ? plan.price + (seatCount * plan.seatPrice)
     : plan.price;
 
   const handleClick = () => {
-    onPurchase(plan.priceId, plan.seatPriceId, seatCount);
+    onPurchase(plan.priceId, plan.seatPriceId, seatCount, promoCode);
   };
 
   return (
@@ -75,6 +75,19 @@ function PricingCard({ plan, seatCount, onSeatChange, onPurchase, loading }) {
         </div>
       )}
       
+      {plan.id === 'enterprise' && (
+        <div className="pr-seat-selector">
+          <label className="pr-seat-label">Promo Code (Optional)</label>
+          <input
+            type="text"
+            value={promoCode || ''}
+            onChange={(e) => onPromoChange(e.target.value)}
+            placeholder="Enter promo code"
+            disabled={loading}
+          />
+        </div>
+      )}
+      
       <button 
         onClick={handleClick} 
         className="pr-btn"
@@ -88,6 +101,7 @@ function PricingCard({ plan, seatCount, onSeatChange, onPurchase, loading }) {
 
 function PricingCards({ onPurchase, loading }) {
   const [proSeats, setProSeats] = useState(0);
+  const [enterprisePromo, setEnterprisePromo] = useState('');
 
   return (
     <section className="pr-section">
@@ -99,6 +113,8 @@ function PricingCards({ onPurchase, loading }) {
               plan={plan}
               seatCount={plan.id === 'pro' ? proSeats : 0}
               onSeatChange={plan.id === 'pro' ? setProSeats : null}
+              promoCode={plan.id === 'enterprise' ? enterprisePromo : null}
+              onPromoChange={plan.id === 'enterprise' ? setEnterprisePromo : null}
               onPurchase={onPurchase}
               loading={loading}
             />
@@ -186,22 +202,28 @@ function BillingDisclosure() {
   );
 }
 
-async function createCheckoutSession(priceId, seatPriceId, seatCount) {
+async function createCheckoutSession(priceId, seatPriceId, seatCount, promoCode) {
   const lineItems = [{ price: priceId, quantity: 1 }];
   
   if (seatPriceId && seatCount > 0) {
     lineItems.push({ price: seatPriceId, quantity: seatCount });
   }
 
+  const body = {
+    priceId,
+    seatCount,
+    allowCoupons: true,
+    lineItems
+  };
+
+  if (promoCode && promoCode.trim()) {
+    body.promoCode = promoCode.trim();
+  }
+
   const response = await fetch('/api/stripe/create-checkout-session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      priceId,
-      seatCount,
-      allowCoupons: true,
-      lineItems
-    })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {

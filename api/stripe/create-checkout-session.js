@@ -8,13 +8,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { lineItems, allowCoupons = true } = req.body;
+    const { lineItems, allowCoupons = true, promoCode } = req.body;
 
     if (!lineItems || !Array.isArray(lineItems) || lineItems.length === 0) {
       return res.status(400).json({ error: 'Invalid line items' });
     }
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionConfig = {
       payment_method_types: ['card'],
       line_items: lineItems,
       mode: 'subscription',
@@ -25,7 +25,29 @@ export default async function handler(req, res) {
       tax_id_collection: {
         enabled: true,
       },
-    });
+    };
+
+    // If a promo code is provided, apply it directly (instead of allowing user input)
+    if (promoCode && promoCode.trim()) {
+      // Validate and apply the promo code
+      const promos = await stripe.promotionCodes.list({
+        code: promoCode.trim(),
+        active: true,
+        limit: 1,
+      });
+
+      if (promos.data.length > 0) {
+        sessionConfig.discounts = [{
+          promotion_code: promos.data[0].id
+        }];
+        // Disable the promotion code field since we're applying one
+        sessionConfig.allow_promotion_codes = false;
+      } else {
+        return res.status(400).json({ error: 'Invalid promo code' });
+      }
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionConfig);
 
     return res.status(200).json({ sessionId: session.id });
   } catch (error) {
