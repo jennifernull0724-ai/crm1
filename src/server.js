@@ -2,9 +2,85 @@ import express from 'express';
 import { prisma } from './prisma.js';
 import { Prisma } from '@prisma/client';
 import { startAutomationEngine } from './automation.js';
+import jwt from 'jsonwebtoken';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+
+// Auth middleware for subscription checking
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  const token = authHeader.substring(7);
+  
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Get user from database
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      include: {
+        workspaces: {
+          include: {
+            workspace: true
+          }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // Check for active subscription
+    const activeSubscription = await prisma.subscription.findFirst({
+      where: {
+        userId: user.id,
+        status: 'active'
+      }
+    });
+
+    if (!activeSubscription) {
+      return res.status(403).json({ error: 'No active subscription' });
+    }
+
+    // Attach user to request
+    req.user = user;
+    req.subscription = activeSubscription;
+    next();
+  } catch (error) {
+    console.error('Auth error:', error);
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// Workspace access middleware
+async function requireWorkspaceAccess(req, res, next) {
+  const workspaceId = req.params.workspaceId;
+  
+  if (!workspaceId) {
+    return res.status(400).json({ error: 'Workspace ID required' });
+  }
+
+  // Check if user has access to this workspace
+  const workspaceUser = await prisma.workspaceUser.findFirst({
+    where: {
+      userId: req.user.id,
+      workspaceId: workspaceId
+    }
+  });
+
+  if (!workspaceUser) {
+    return res.status(403).json({ error: 'Access denied to this workspace' });
+  }
+
+  req.workspaceUser = workspaceUser;
+  next();
+}
 
 function rejectDemoMockSample(req, res) {
   const haystack = JSON.stringify({ params: req.params, query: req.query, body: req.body }).toLowerCase();
@@ -216,6 +292,10 @@ function requireReportReadAccess(req, res, { workspaceId, permissions = [] }) {
   void permissions;
   return requireReadScope(req, res, { workspaceId, resource: 'reports' });
 }
+
+// Apply auth middleware to all /workspaces/* routes
+app.use('/workspaces', requireAuth);
+app.use('/workspaces/:workspaceId', requireWorkspaceAccess);
 
 // Phase 0: Workspace reads (needed for UI shell gating and switcher) ----------
 
